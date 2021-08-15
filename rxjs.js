@@ -426,7 +426,6 @@ class MChannel {
  *
  */
 
-
 class Next { 
 	constructor (value) { this.value = value; }
 	isError = false
@@ -722,6 +721,20 @@ class Observable {
 		return new ColdObservable(ef, 'take(' + size + ')') 	
 	}
 
+	skip (size) {
+		let ef = (e, subscription) => new AsyncM(async p => {
+			let n = size
+			let k = x => {
+				if (x == End) e.emit(End)
+				else if (n <= 0) { e.emit(x) } 
+				else { n = n - 1; }
+			}
+
+			subscription.source = this._subscribe(k, e, p)
+		})
+		return new ColdObservable(ef, 'skip(' + size + ')') 	
+	}
+
 	filter (f) {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			subscription.source = this._subscribe(x => {
@@ -986,6 +999,7 @@ const filter     = make(Observable.prototype.filter)
 const map        = make(Observable.prototype.map)
 const switchMap  = make(Observable.prototype.switchMap)
 const take       = make(Observable.prototype.take)
+const skip 	 = make(Observable.prototype.skip)
 const mergeMap   = make(Observable.prototype.mergeMap)
 const mergeAll   = make(Observable.prototype.mergeAll)
 const exhaustMap = make(Observable.prototype.exhaustMap)
