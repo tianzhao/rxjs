@@ -779,7 +779,7 @@ class Observable {
 
 	bind (f) {
 		let ef = (e, subscription) => new AsyncM(async p => {
-			let ending = false
+			let ending = true
 
 			subscription.source = this._subscribe(x => {
 				if (x == End) {
