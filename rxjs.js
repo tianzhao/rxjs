@@ -992,7 +992,7 @@ const merge         = Observable.merge
 
 const make = f => (...args) => ob => f.apply(ob, args)
 
-// short names for 16 instance methods -- can only used through pipe method call
+// short names for 17 instance methods -- can only used through pipe method call
 const retry      = make(Observable.prototype.retry)
 const catchError = make(Observable.prototype.catchError)
 const filter     = make(Observable.prototype.filter)
