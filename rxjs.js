@@ -230,7 +230,7 @@ class AsyncM {
 
 
 /*
- *  4. Emitter and MVar
+ *  4. Emitter, MVar, and Channel
  */
 
 class Emitter {
@@ -349,45 +349,6 @@ class MVar {
 		else k(this.value)  
 	}))
 }
-
-
-/*
- *  5. Channels
- */
-
-// not bounded and does not support cancellation
-class Channel {
-	constructor() {
-		this.data = [];			// data buffer
-		this.listeners = [];		// reader queue
-	}
-
-	// read :: (a -> IO()) -> IO()
-	read = k => {
-		const d = this.data;
-		if(d.length > 0) { 
-			k(d.shift()); 		// read one data
-		} else { 
-			this.listeners.push(k); // add reader to the queue
-		}
-	};
-
-	// write :: a -> IO()
-	write = x => {
-		const l = this.listeners;
-		if(l.length > 0) {
-			const k = l.shift(); 	// wake up one reader in FIFO order
-			k(x);
-		}
-		else {
-			this.data.push(x); 	// buffer if no reader in the queue
-		}
-	}
-
-	readAsync = new AsyncM(p => new Promise(this.read))
-	writeAsync = x => new AsyncM(p => new Promise(k => { this.write(x); k() })) 
-}
- 
 
 // MVar-based bounded channel
 class MChannel {
