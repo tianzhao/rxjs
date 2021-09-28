@@ -272,7 +272,7 @@ class MVar {
 	}
 
 	// a -> AsyncM ()
-	putAsync = x => new AsyncM(p => new Promise((k, r) => {
+	put = x => new AsyncM(p => new Promise((k, r) => {
 		if (! this.isEmpty) { 
 			let k1 = _ => {
 				p.removeCanceller(c1);
@@ -305,7 +305,7 @@ class MVar {
 	}
 
 	// AsyncM a
-	takeAsync = new AsyncM(p => new Promise((k, r) => { 
+	take = new AsyncM(p => new Promise((k, r) => { 
 		if (this.isEmpty) { 
 			let k1 = _ => {
 				p.removeCanceller(c1)	
@@ -332,7 +332,7 @@ class MVar {
 	} 
 
 	// AsyncM a
-	readAsync = new AsyncM(p => new Promise((k, r) => { 
+	read = new AsyncM(p => new Promise((k, r) => { 
 		if (this.isEmpty) { 
 			let k1 = _ => {
 				p.removeCanceller(c1)	
@@ -362,17 +362,17 @@ class MChannel {
 	isEmpty = _ => this.n <= 0
 	isFull = _ => this.n >= this.size
 
-	readAsync = new AsyncM(async p => {
+	read = new AsyncM(async p => {
 		let ret
 
 		if (this.isEmpty()) {
-			ret = await this.m.takeAsync.run(p)
+			ret = await this.m.take.run(p)
 		}
 		else {
 			ret = this.data.shift();
 			
 			if (!this.m.isEmpty) { // has pending data or writers
-				let x = await this.m.takeAsync.run(p)
+				let x = await this.m.take.run(p)
 				this.data.push(x)
 			}
 			else {
@@ -382,10 +382,10 @@ class MChannel {
 		return ret;
 	})
 
-	writeAsync = x => new AsyncM(async p => {
+	write = x => new AsyncM(async p => {
 		if (this.isFull() || 
 			this.m.pending.length > 0) {  // has pending readers
-			await this.m.putAsync(x).run(p)
+			await this.m.put(x).run(p)
 		}
 		else {
 			this.n = this.n + 1;
@@ -496,12 +496,12 @@ class Observable {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let ch = new MChannel() // TODO: add a buffer size parameter
 
-			subscription.source = this._subscribe(x => ch.writeAsync(x)._run(p), e, p)
+			subscription.source = this._subscribe(x => ch.write(x)._run(p), e, p)
 
-			let x = await ch.readAsync.run(p)	
+			let x = await ch.read.run(p)	
 			let k = y => {
 				if (y == End) {	
-					ch.readAsync.bind(x => {
+					ch.read.bind(x => {
 						if (x == End) e.emit(End)
 						else subscription.child = x.value._subscribe(k, e, p)
 					})._run(p)
@@ -673,12 +673,12 @@ class Observable {
 			let channels = lst.map(_ => new MChannel())
 
 			subscription.source = lst.map(
-				(ob, i) => ob._subscribe(x => channels[i].writeAsync(x)._run(p), e, p)
+				(ob, i) => ob._subscribe(x => channels[i].write(x)._run(p), e, p)
 			)
 
 			let ended = false
 			while (! ended) {
-				let f = ch => ch.readAsync.bind(
+				let f = ch => ch.read.bind(
 					x => (x == End) ? AsyncM.throw(x) : AsyncM.pure(x)
 				)
 
@@ -751,11 +751,11 @@ class Observable {
 
 			let channels = lst.map(_ => new MChannel())
 
-			subscription.source = lst.map((ob, i) => ob._subscribe(x => channels[i].writeAsync(x)._run(p), e, p))
+			subscription.source = lst.map((ob, i) => ob._subscribe(x => channels[i].write(x)._run(p), e, p))
 
 			let ended = false
 			while (! ended) {
-				let y = await AsyncM.all(channels.map(ch => ch.readAsync)).run(p)
+				let y = await AsyncM.all(channels.map(ch => ch.read)).run(p)
 
 				if(y[0] == End && y[1] == End) { 
 					e.emit(new Next(true))
