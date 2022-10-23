@@ -229,58 +229,6 @@ class AsyncM {
 }
 
 /*
- * Scheduler (with timer optimization): 
- * 1. maintain a cache from timer events to event listeners
- * 2. merge listeners to the same timer event
- * 3. flush the cache at appropriate time 
- *   e.g. when an (not just timer) event fires but this only works with one scheduler 
- */
-
-class Scheduler {
-	constructor() { this.flush() }
-
-	flush () { 
-		this.delayCache = {}; 
-		this.repeatCache = {}; 
-	}
-
-	timer(n, isRepeating) {
-		let c = isRepeating ? this.repeatCache : this.delayCache
-		if (c[n] == undefined) {
-			c[n] = new Timer(n, isRepeating)
-		}
-		return AsyncM.lift(k => c[n].addListener(k), k => c[n].removeListener(k))
-	}
-
-	delay(n) { this.timer(n, false) }
-
-	repeat(n) { this.timer(n, true) }
-}
-
-class Timer {
-	constructor(duration, isRepeating) {
-		this.duration = duration
-		this.isRepeating = isRepeating
-		this.listeners = []
-		this.id = (isRepeating ?  setInterval : setTimeout)(_ => this._fire(), duration)
-	}
-
-	_fire() { this.listeners.forEach(l => l()) }
-
-	// though clearInterval and clearTimeout are the same, we distinguish them anyway
-	_cancel() { if (this.isRepeating) clearInterval(this.id); else clearTimeout(this.id) } 
-
-	clear () { this.listeners = [] }
-
-	addListener(l) { this.listeners.push(l) }
-
-	removeListener(l) { 
-		this.listeners = this.listeners.filter(f => f !=l) 
-		if(this.listeners.length == 0) this._cancel();
-	}
-}
-
-/*
  *  4. Emitter, MVar, and Channel
  */
 
