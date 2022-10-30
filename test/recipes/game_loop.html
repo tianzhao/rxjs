@@ -1,0 +1,540 @@
+
+<!DOCTYPE html>
+<html>
+
+<body>
+
+<canvas width="400px" height="300px" id="game"></canvas>
+<div id="fps"></div>
+<p class="instructions">
+  Each time a block hits a wall, it gets faster. You can hit SPACE to pause the boxes. They will change colors to show they are paused.
+</p>
+
+</body>
+
+<head>
+
+<style>
+canvas {
+  border: 1px solid #FF00FF;
+}
+</style>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+
+const clampMag = (value, min, max) => {
+  let val = Math.abs(value);
+  let sign = value < 0 ? -1 : 1;
+  if(min <= val && val <= max) {
+    return value;
+  }
+  if(min > val) {
+    return sign*min;
+  }
+  if(max < val) {
+    return sign*max;
+  }
+};
+
+/**
+ * clampTo30FPS(frame)
+ * 
+ * @param frame - {IFrameData} the frame data to check if we need to clamp to max of
+ *  30fps time.
+ * 
+ * If we get sporadic LONG frames (browser was navigated away or some other reason the frame takes a while) we want to throttle that so we don't JUMP ahead in any deltaTime calculations too far.
+ */
+const clampTo30FPS = (frame) => {
+ if(frame.deltaTime > (1/30)) {
+    frame.deltaTime = 1/30;
+  }
+  return frame;
+}
+
+const runBoundaryCheck = (obj, boundaries) => {
+  let boundaryHit = '';
+  if (obj.x + obj.width > boundaries.right) {
+    boundaryHit = 'right';
+    //obj.velocity.x *= - bounceRateChanges.right;
+    obj.x = boundaries.right - obj.width;
+  } else if (obj.x < boundaries.left) {
+    //obj.velocity.x *= -bounceRateChanges.left;
+    boundaryHit = 'left';
+    obj.x = boundaries.left;
+  }
+  if(obj.y + obj.height >= boundaries.bottom) {        
+    //obj.velocity.y *= -bounceRateChanges.bottom;
+    boundaryHit = 'bottom';
+    obj.y = boundaries.bottom - obj.height;
+  } else if (obj.y < boundaries.top) {
+    //obj.velocity.y *= -bounceRateChanges.top;
+    boundaryHit = 'top';
+    obj.y = boundaries.top;
+  }
+  return boundaryHit;
+};
+
+class KeyUtil {
+
+  /**
+   * keyToCode(keyName: string)
+   * 
+   * @param keyName {string} - The keyName of the key you wish to get the code for.
+   * 
+   * @return {number} - Will be the keycode of the given keyName, or -1 if it does not exist in
+   *  the set of known keys.
+   */
+  static keyToCode(keyName) {
+    if (KeyUtil.keyNames.hasOwnProperty(keyName)){
+      return KeyUtil.keyNames[keyName];
+    }else {
+      return -1;
+    }
+  };
+
+  /**
+   * codeToKey(code: string)
+   * 
+   * @param code {string} - The key code to lookup the keyname for
+   * 
+   * @reaturn {string} - Will be the keyname of the given Code or '' if it does not 
+   * exist on the set of known codes.
+   */
+  static codeToKey(code) {
+    if (KeyUtil.keyCodes.hasOwnProperty(code)) {
+      return KeyUtil.keyCodes[code];
+    } else {
+      return '';
+    }
+  };
+
+  static keyNames = {
+    "0": 48,
+    "1": 49,
+    "2": 50,
+    "3": 51,
+    "4": 52,
+    "5": 53,
+    "6": 54,
+    "7": 55,
+    "8": 56,
+    "9": 57,
+    "spacebar": 32,
+    "backspace": 8,
+    "tab": 9,
+    "enter": 13,
+    "shift": 16,
+    "ctrl": 17,
+    "alt": 18,
+    "pause_break": 19,
+    "caps_lock": 20,
+    "escape": 27,
+    "page_up": 33,
+    "page_down": 34,
+    "end": 35,
+    "home": 36,
+    "left_arrow": 37,
+    "up_arrow": 38,
+    "right_arrow": 39,
+    "down_arrow": 40,
+    "insert": 45,
+    "delete": 46,
+    "a": 65,
+    "b": 66,
+    "c": 67,
+    "d": 68,
+    "e": 69,
+    "f": 70,
+    "g": 71,
+    "h": 72,
+    "i": 73,
+    "j": 74,
+    "k": 75,
+    "l": 76,
+    "m": 77,
+    "n": 78,
+    "o": 79,
+    "p": 80,
+    "q": 81,
+    "r": 82,
+    "s": 83,
+    "t": 84,
+    "u": 85,
+    "v": 86,
+    "w": 87,
+    "x": 88,
+    "y": 89,
+    "z": 90,
+    "left_window_key": 91,
+    "right_window_key": 92,
+    "select_key": 93,
+    "numpad_0": 96,
+    "numpad_1": 97,
+    "numpad_2": 98,
+    "numpad_3": 99,
+    "numpad_4": 100,
+    "numpad_5": 101,
+    "numpad_6": 102,
+    "numpad_7": 103,
+    "numpad_8": 104,
+    "numpad_9": 105,
+    "multiply": 106,
+    "add": 107,
+    "subtract": 109,
+    "decimal_point": 110,
+    "divide": 111,
+    "f1": 112,
+    "f2": 113,
+    "f3": 114,
+    "f4": 115,
+    "f5": 116,
+    "f6": 117,
+    "f7": 118,
+    "f8": 119,
+    "f9": 120,
+    "f10": 121,
+    "f11": 122,
+    "f12": 123,
+    "num_lock": 144,
+    "scroll_lock": 145,
+    "semi_colon": 186,
+    "equal_sign": 187,
+    "comma": 188,
+    "dash": 189,
+    "period": 190,
+    "forward_slash": 191,
+    "grave_accent": 192,
+    "open_bracket": 219,
+    "back_slash": 220,
+    "close_braket": 221,
+    "single_quote": 222
+  };
+
+  static keyCodes = {
+    "8": "backspace",
+    "9": "tab",
+    "13": "enter",
+    "16": "shift",
+    "17": "ctrl",
+    "18": "alt",
+    "19": "pause_break",
+    "20": "caps_lock",
+    "27": "escape",
+    "32": "spacebar",
+    "33": "page_up",
+    "34": "page_down",
+    "35": "end",
+    "36": "home",
+    "37": "left_arrow",
+    "38": "up_arrow",
+    "39": "right_arrow",
+    "40": "down_arrow",
+    "45": "insert",
+    "46": "delete",
+    "48": "0",
+    "49": "1",
+    "50": "2",
+    "51": "3",
+    "52": "4",
+    "53": "5",
+    "54": "6",
+    "55": "7",
+    "56": "8",
+    "57": "9",
+    "65": "a",
+    "66": "b",
+    "67": "c",
+    "68": "d",
+    "69": "e",
+    "70": "f",
+    "71": "g",
+    "72": "h",
+    "73": "i",
+    "74": "j",
+    "75": "k",
+    "76": "l",
+    "77": "m",
+    "78": "n",
+    "79": "o",
+    "80": "p",
+    "81": "q",
+    "82": "r",
+    "83": "s",
+    "84": "t",
+    "85": "u",
+    "86": "v",
+    "87": "w",
+    "88": "x",
+    "89": "y",
+    "90": "z",
+    "91": "left_window_key",
+    "92": "right_window_key",
+    "93": "select_key",
+    "96": "numpad_0",
+    "97": "numpad_1",
+    "98": "numpad_2",
+    "99": "numpad_3",
+    "100": "numpad_4",
+    "101": "numpad_5",
+    "102": "numpad_6",
+    "103": "numpad_7",
+    "104": "numpad_8",
+    "105": "numpad_9",
+    "106": "multiply",
+    "107": "add",
+    "109": "subtract",
+    "110": "decimal_point",
+    "111": "divide",
+    "112": "f1",
+    "113": "f2",
+    "114": "f3",
+    "115": "f4",
+    "116": "f5",
+    "117": "f6",
+    "118": "f7",
+    "119": "f8",
+    "120": "f9",
+    "121": "f10",
+    "122": "f11",
+    "123": "f12",
+    "144": "num_lock",
+    "145": "scroll_lock",
+    "186": "semi_colon",
+    "187": "equal_sign",
+    "188": "comma",
+    "189": "dash",
+    "190": "period",
+    "191": "forward_slash",
+    "192": "grave_accent",
+    "219": "open_bracket",
+    "220": "back_slash",
+    "221": "close_braket",
+    "222": "single_quote"
+    };
+}
+
+const boundaries = {
+  left: 0,
+  top: 0,
+  bottom: 300,
+  right: 400
+};
+const bounceRateChanges = {
+  left: 1.1,
+  top: 1.2,
+  bottom: 1.3,
+  right: 1.4
+}
+const baseObjectVelocity = {
+  x: 30,
+  y: 40,
+  maxX: 250,
+  maxY: 200
+};
+
+const gameArea = document.getElementById('game');
+const fps = document.getElementById('fps');
+
+/**
+ * This is our core game loop logic. We update our objects and gameState here
+ * each frame. The deltaTime passed in is in seconds, we are givent our current state,
+ * and any inputStates. Returns the updated Game State
+ */
+const update = (deltaTime, state, inputState) => {
+  //console.log("Input State: ", inputState);
+  if(state['objects'] === undefined) {
+    state['objects'] = [
+      { 
+        // Transformation Props
+        x: 10, y: 10, width: 20, height: 30, 
+        // State Props
+        isPaused: false, toggleColor: '#FF0000', color: '#000000', 
+        // Movement Props
+        velocity: baseObjectVelocity 
+      },
+      { 
+        // Transformation Props
+        x: 200, y: 249, width: 50, height: 20,
+        // State Props
+        isPaused: false, toggleColor: '#00FF00', color: '#0000FF', 
+        // Movement Props
+        velocity: {x: -baseObjectVelocity.x, y: 2*baseObjectVelocity.y} }
+    ];
+  } else {
+
+    state['objects'].forEach((obj) => {
+      // Process Inputs
+      if (inputState['spacebar']) {
+        obj.isPaused = !obj.isPaused;
+        let newColor = obj.toggleColor;        
+        obj.toggleColor = obj.color;
+        obj.color = newColor;        
+      }
+
+      // Process GameLoop Updates
+      if(!obj.isPaused) {
+
+        // Apply Velocity Movements
+        obj.x = obj.x += obj.velocity.x*deltaTime;
+        obj.y = obj.y += obj.velocity.y*deltaTime;  
+
+        // Check if we exceeded our boundaries
+        const didHit = runBoundaryCheck(obj, boundaries);    
+        // Handle boundary adjustments
+        if(didHit){
+          if(didHit === 'right' || didHit === 'left') {
+            obj.velocity.x *= -bounceRateChanges[didHit];
+          } else {
+            obj.velocity.y *= -bounceRateChanges[didHit];
+          }
+        }
+      }
+
+      // Clamp Velocities in case our boundary bounces have gotten
+      //  us going tooooo fast.
+      obj.velocity.x = clampMag(obj.velocity.x, 0, baseObjectVelocity.maxX);
+      obj.velocity.y = clampMag(obj.velocity.y, 0, baseObjectVelocity.maxY);
+    });    
+  }
+
+  return state;
+}
+
+/**
+ * This is our rendering function. We take the given game state and render the items
+ * based on their latest properties.
+ */
+const render = (state) => {
+  const ctx = (gameArea).getContext('2d');
+  // Clear the canvas
+  ctx.clearRect(0, 0, gameArea.clientWidth, gameArea.clientHeight);
+
+  // Render all of our objects (simple rectangles for simplicity)
+  state['objects'].forEach((obj) => {
+    ctx.fillStyle = obj.color;
+    ctx.fillRect(obj.x, obj.y, obj.width, obj.height);
+  });  
+};
+
+
+
+/**
+ * This function returns an observable that will emit the next frame once the 
+ * browser has returned an animation frame step. Given the previous frame it calculates
+ * the delta time, and we also clamp it to 30FPS in case we get long frames.
+ */
+const calculateStep = (prevFrame) => {
+  return Observable.create((observer) => { 
+    
+    requestAnimationFrame((frameStartTime) => {      
+      // Millis to seconds
+      const deltaTime = prevFrame ? (frameStartTime - prevFrame.frameStartTime)/1000 : 0;
+      observer.next({
+        frameStartTime,
+        deltaTime
+      });
+    })
+  })
+  .pipe(
+    map(clampTo30FPS)
+  )
+};
+
+// This is our core stream of frames. We use expand to recursively call the 
+//  `calculateStep` function above that will give us each new Frame based on the
+//  window.requestAnimationFrame calls. Expand emits the value of the called functions
+//  returned observable, as well as recursively calling the function with that same 
+//  emitted value. This works perfectly for calculating our frame steps because each step
+//  needs to know the lastStepFrameTime to calculate the next. We also only want to request
+//  a new frame once the currently requested frame has returned.
+const frames$ = of(undefined)
+  .pipe(
+    expand((val) => calculateStep(val)),
+    // Expand emits the first value provided to it, and in this
+    //  case we just want to ignore the undefined input frame
+    filter(frame => frame !== undefined),
+    map((frame) => frame.deltaTime),
+    share()
+  )
+
+// This is our core stream of keyDown input events. It emits an object like `{"spacebar": 32}`
+//  each time a key is pressed down.
+const keysDown$ = fromEvent(document, 'keydown')
+  .pipe(
+    map((event) => {
+      const name = KeyUtil.codeToKey(''+event.keyCode);
+      if (name !== ''){
+        let keyMap = {};
+        keyMap[name] = event.code;
+        return keyMap;
+      } else {
+        return undefined;
+      }      
+    }),
+    filter((keyMap) => keyMap !== undefined)
+  );
+
+// Here we buffer our keyDown stream until we get a new frame emission. This
+//  gives us a set of all the keyDown events that have triggered since the previous
+//  frame. We reduce these all down to a single dictionary of keys that were pressed.
+const keysDownPerFrame$ = keysDown$
+  .pipe(
+    buffer(frames$),
+    map((frames) => {
+      return frames.reduce((acc, curr) => {
+        return Object.assign(acc, curr);
+      }, {});
+    })
+  );
+
+// Since we will be updating our gamestate each frame we can use an Observable
+//  to track that as a series of states with the latest emission being the current
+//  state of our game.
+const gameState$ = new BehaviorSubject({});
+
+// This is where we run our game! 
+//  We subscribe to our frames$ stream to kick it off, and make sure to
+//  combine in the latest emission from our inputs stream to get the data
+//  we need do perform our gameState updates.
+frames$
+  .pipe(
+    withLatestFrom(keysDownPerFrame$, gameState$),
+    // HOMEWORK_OPPORTUNITY: Handle Key-up, and map to a true KeyState change object
+    map(([deltaTime, keysDown, gameState]) => update(deltaTime, gameState, keysDown)),
+    tap((gameState) => gameState$.next(gameState))
+   
+  )
+  .subscribe((gameState) => {
+    render(gameState);
+  });
+
+
+// Average every 10 Frames to calculate our FPS
+let subscribe = frames$ 
+  .pipe(
+    bufferCount(10),
+    map((frames) => {
+      const total = frames
+        .reduce((acc, curr) => {
+          acc += curr;
+          return acc;
+        }, 0);
+
+        return 1/(total/frames.length);
+    })
+  ).subscribe((avg) => {
+    fps.innerHTML = Math.round(avg) + '';
+  })
+
+
+</script>
+
+</head>
+
+</html>

@@ -1,0 +1,209 @@
+
+<!DOCTYPE html>
+<html>
+
+<body>
+
+<div id="info"></div>
+<svg width="200" height="200" id="svg_container">
+  <style>
+    .rxjs { font: 95px serif; fill: purple; }
+  </style>
+  <defs>
+    <mask id="Mask" maskContentUnits="userSpaceOnUse">
+      <rect width="200" height="200" fill="white" opacity="1"/>
+      <path id="mask_path"/>
+    </mask>
+  </defs>
+  <text x="10" y="120" class="rxjs">RxJs</text>
+  <rect width="200" height="200" mask="url(#Mask)"/>
+</svg>
+<div>Use arrows to uncover image!!!</div>
+
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+<script>
+
+const size = 200;
+
+const clearPlayerPath = _ => 
+  document
+    .querySelectorAll('circle')
+    .forEach(e => document.querySelector('#svg_container').removeChild(e));
+
+const addCircleColored = (color) => (e) => {
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('cx', e.y);
+  circle.setAttribute('cy', e.x);
+  circle.setAttribute('r', '2');
+  circle.setAttribute('stroke', color);
+  circle.setAttribute('strokeWidth', '1');
+  document.querySelector('#svg_container').appendChild(circle);
+}
+
+const addPlayerPath = (state) => 
+  state.moves.forEach(addCircleColored('gray'));
+const addEnemy = (state) => 
+  state.enemies.forEach(addCircleColored('red'));
+
+const addHoles = (state) => {
+  if (!state.corners.length) {
+    return;
+  }
+
+  const createPathFromCorners = (a, c) => a += 
+    `${a.endsWith('Z') ? 'M' : 'L'} ${c.y} ${c.x} ${c.dirChange ? '' : 'Z'}`;
+  const newPath = `M${state.corners[0].y} ${state.corners[0].x}` 
+    + state.corners.reduce(createPathFromCorners, '');
+  const maskPath = document.querySelector('#mask_path');
+
+  let currentPath = maskPath.getAttribute('d');
+  if (currentPath == null) currentPath = ''
+  const path = newPath + ' ' + currentPath;
+
+  maskPath.setAttribute('d', path);
+}
+
+const paintInfo = (text) => 
+  document.querySelector('#info').innerHTML = text;
+const paintLives = (state) => 
+  paintInfo(`lives: ${state.player.lives}`);
+
+const updateSvgPath = (state) => 
+  [clearPlayerPath, addPlayerPath, addEnemy, addHoles, paintLives]
+    .forEach(fn => fn(state));
+
+const paintGame = updateSvgPath;
+const paintGameOver = () => paintInfo('Game Over !!!');
+
+const newEnemiesFrom = (state) => (
+  state.enemies.forEach(e => ( 
+    e.x <= 0 || e.x > size ? e.dirX *= -1 : noop,
+    e.y <= 0 || e.y > size ? e.dirY *= -1 : noop,
+    e.x += e.dirX,
+    e.y += e.dirY,
+    e.moveDuration += 1,
+    e.moveDuration > 100 
+      ? (
+        e.dirX = Math.random() > 0.5 ? 1 : -1,
+        e.dirY = Math.random() > 0.5 ? 1 : -1,
+        e.moveDuration = 0
+      ) 
+      : noop
+  )),
+  state.enemies
+);
+
+const positionChangeUnit = 2;
+
+const keyboardEvents$ = fromEvent(document, "keydown")
+  .pipe(
+    pluck("code"),
+    startWith('ArrowDown')
+  );
+
+const keyToDirection = (key, key1, key2) => 
+  key === key1
+    ? positionChangeUnit
+    : key === key2
+      ? -positionChangeUnit
+      : 0;
+
+const up = 'ArrowUp';
+const down = 'ArrowDown';
+const left = 'ArrowLeft';
+const right = 'ArrowRight';
+
+const newPlayerFrom = (state, key) => (
+  state.player.x += keyToDirection(key, down, up),
+  state.player.y += keyToDirection(key, right, left),
+  state.player.x < 0 ? state.player.x = 0 : noop,
+  state.player.x > size ? state.player.x = size : noop,
+  state.player.y < 0 ? state.player.y = 0 : noop,
+  state.player.y > size ? state.player.y = size : noop,
+  state.player
+);
+
+const getEnclosedArea = (state) => 
+  state.moves.length <= 1
+    ? []
+    : [
+        ...state.moves
+          .slice(state.moves.findIndex(e => 
+            e.x === state.player.x && e.y === state.player.y))
+          .filter(e => e.dirChange),
+        state.moves.pop()
+      ];
+
+const movePlayer = (state, key) => (
+  state.moves.some(e => e.x === state.player.x && e.y === state.player.y) 
+    ? (
+      state.corners = getEnclosedArea(state),
+      state.moves = []
+    )
+    : state.moves.push({
+        x: state.player.x,
+        y: state.player.y,
+        dirChange: state.key !== key 
+      }),
+  state
+);
+
+const intersect = (state) => (
+  state.moves.some((m) => 
+    state.enemies.some(e => m.x === e.x && m.y === e.y)
+  ) 
+    ? (
+      state.player.lives -= 1,
+      state.player.x = 0,
+      state.player.y = 0,
+      state.moves = []
+    )
+    : noop,
+  state
+);
+
+const initialGame = {
+  player: {x: 0, y: 10, lives: 3},
+  enemies: [
+    {x: 10, y: 10, moveDuration: 0, dirX: 1, dirY: 1}, 
+    {x: 50, y: 50, moveDuration: 0, dirX: -1, dirY: 1}
+  ],
+  key: '',
+  moves: [],
+  corners: []
+};
+
+const updateGame = (state, [_, key]) => (
+  state.enemies = newEnemiesFrom(state),
+  state.player = newPlayerFrom(state, key),
+  state = intersect(state),
+  state = movePlayer(state, key),
+  state.key = key,
+  state
+);
+
+const isGameOn = (state) => state.player.lives > 0
+
+let subscribe = interval(15)
+  .pipe(
+    withLatestFrom(keyboardEvents$),
+    scan(updateGame, initialGame),
+    tap(paintGame),
+    takeWhile(isGameOn),
+    finalize(paintGameOver)
+  )
+  .subscribe();
+
+</script>
+
+</head>
+
+</html>

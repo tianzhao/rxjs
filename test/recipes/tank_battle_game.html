@@ -1,0 +1,167 @@
+
+<!DOCTYPE html>
+<html>
+
+<body>
+
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+
+const gameSize = 20;
+const up = '^';
+const down = 'v';
+const left = '<';
+const right = '>';
+const _empty = 0;
+const p1Color = 'DarkViolet';
+const p2Color = 'CornflowerBlue';
+const p1Shot = 'c';
+const p2Shot = 'n';
+
+const createElem = (gameObject) => {
+  const elem = document.createElement('div');
+  elem.style.display = 'inline-block';
+  elem.style.marginLeft = '10px';
+  elem.style.height = '6px';
+  elem.style.width = '6px';
+  elem.style.color = gameObject.c;
+  elem.innerText = gameObject === _empty ? ' ' : gameObject.g;
+
+  return elem;
+}
+
+const paintPlayerScore = (score, color) => {
+  const scoreElem = document.createElement('span');
+  scoreElem.innerHTML = `P1: ${score} `;
+  scoreElem.style.color = color;
+  document.body.appendChild(scoreElem);
+}
+
+const paintScores = (state) => {
+  document.body.innerHTML = 'Scores: ';
+  paintPlayerScore(state.players[0].s, p1Color);
+  paintPlayerScore(state.players[1].s, p2Color);
+}
+
+const painInfo = () => {
+  document.body.innerHTML += 'This game requires 2 players :)';
+  document.body.innerHTML += '<br/>';
+  document.body.innerHTML += 'Player 1 controls: wsad, fire: c';
+  document.body.innerHTML += '<br/>';
+  document.body.innerHTML += 'Player 2 controls: ikjl, fire: n';
+}
+
+const emptyGame = () => Array(gameSize).fill(_empty).map(_ => Array(gameSize).fill(_empty));
+const paintGame = (state) => {
+  const game = emptyGame();
+  state.players.forEach(p => game[p.x][p.y] = { g: p.g, c: p.c });
+  state.shots.forEach(s => game[s.x][s.y] = { g: '*', c: 'black' });
+
+  game.forEach(row => {
+    const rowContainer = document.createElement('div');
+    row.forEach(col => rowContainer.appendChild(createElem(col)));
+    document.body.appendChild(rowContainer);
+  });
+}
+
+const paint = (state) => {
+  paintScores(state);
+  document.body.innerHTML += '<br/>';
+  paintGame(state);
+  painInfo();
+}
+
+const gameObject = (x, y, g, c) => ({ x, y, g, s: 0, c: c });
+
+const updatePlayer = (p, key, u, d, l, r) => (
+  (key === d
+    ? (p.x += p.x < gameSize - 1 ? 1 : 0, p.g = down)
+    : key === u
+      ? (p.x += p.x > 0 ? -1 : 0, p.g = up)
+      : noop),
+  (key === r
+    ? (p.y += p.y < gameSize - 1 ? 1 : 0, p.g = right)
+    : key === l
+      ? (p.y += p.y > 0 ? -1 : 0, p.g = left)
+      : noop),
+  p);
+
+const addShot = (player) =>
+  ({ x: player.x, y: player.y, g: player.g });
+
+const addShots = (state, key) =>
+  state.shots.push(
+    key === p1Shot
+      ? addShot(state.players[0])
+      : key === p2Shot
+        ? addShot(state.players[1])
+        : []);
+
+const updateShots = (shots) => shots
+  .filter(s =>
+    s.x > 0
+    && s.x < gameSize - 1
+    && s.y > 0
+    && s.y < gameSize)
+  .map(s => (
+    s.g === down
+      ? s.x += 1
+      : s.g === up
+        ? s.x += -1
+        : s.g === right
+          ? s.y += 1
+          : s.g === left
+            ? s.y += -1
+            : () => { }, s));
+
+const initialState = {
+  players: [
+    gameObject(1, 1, right, p1Color),
+    gameObject(gameSize - 2, gameSize - 2, left, p2Color)
+  ],
+  shots: []
+};
+
+const checkCollisions = (state) =>
+  state.players.forEach((p, i) => {
+    const collidingShotIndex = state.shots.findIndex(s => s.x === p.x && s.y === p.y);
+    if (collidingShotIndex > -1) {
+      if (i === 0) {
+        state.players[1].s += 1;
+      } else {
+        state.players[0].s += 1;
+      }
+      state.shots.splice(collidingShotIndex, 1);
+    }
+  });
+
+let subscribe = combineLatest(
+  interval(100),
+  fromEvent(document, 'keydown').pipe(startWith({ key: '' }))
+).pipe(
+  scan((state, [_, event]) => (
+    updatePlayer(state.players[0], event.key, 'w', 's', 'a', 'd'),
+    updatePlayer(state.players[1], event.key, 'i', 'k', 'j', 'l'),
+    addShots(state, event.key),
+    state.shots = updateShots(state.shots),
+    checkCollisions(state),
+    state),
+    initialState
+  ),
+  tap(paint)
+).subscribe();
+
+</script>
+
+</head>
+
+</html>

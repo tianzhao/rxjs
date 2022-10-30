@@ -1,0 +1,476 @@
+
+<!DOCTYPE html>
+<html>
+
+<body>
+<div id="computer_score"></div>
+<div id="player_board"></div>
+<div id="player_score"></div>
+<div id="computer_board"></div>
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+
+const GAME_SIZE = 12;
+const NUMBER_OF_SHIP_PARTS = 15;
+const EMPTY = 0;
+const MISS = 8;
+const HIT = 9;
+const SHORTEST_SHIP = 1;
+const LONGEST_SHIP = 5;
+const PLAYER = 'p';
+const COMPUTER = 'c';
+
+const byId = (id) => document.getElementById(id);
+const computerScoreContainer = byId("computer_score");
+const playerScoreContainer = byId("player_score");
+
+const playerCells = (cell) =>
+  cell !== EMPTY ? (cell === MISS ? "o" : cell === HIT ? "x" : cell) : "_";
+const computerCells = (cell) =>
+  cell === HIT || cell === MISS ? (cell === MISS ? "o" : "x") : "_";
+
+const paintBoard = (
+  container,
+  playerName,
+  board
+) => (
+  (container.innerHTML = ""),
+  board.forEach((r, i) =>
+    r.forEach(
+      (c, j) =>
+        (container.innerHTML += `
+    <div id=${playerName},${i},${j} 
+    style='float:left; margin-left: 5px'>
+    ${playerName === PLAYER ? playerCells(c) : computerCells(c)}
+    </div>`),
+      (container.innerHTML += "<br/>")
+    )
+  ),
+  (container.innerHTML += "<br/><br/>")
+);
+
+const paintShipsInfo = (scoreSubject) =>
+  Object.keys(scoreSubject.value.ships).reduce(
+    (a, c) => ((a += `<b>${c} </b>: ${scoreSubject.value.ships[c]} | `), a),
+    ""
+  );
+
+const paintScores = (
+  computerScore,
+  playerScore
+) =>
+  ((c, p) => (
+    (c.innerHTML = ""),
+    (c.innerHTML += "Computer score: " + computerScore.value.score + "<br/>"),
+    paintShipsInfo(computerScore),
+    (c.innerHTML += "Ships: " + paintShipsInfo(computerScore)),
+    (p.innerHTML = ""),
+    (p.innerHTML += "Player score: " + playerScore.value.score + "<br/>"),
+    (p.innerHTML += "Ships: " + paintShipsInfo(playerScore))
+  ))(computerScoreContainer, playerScoreContainer);
+
+const paintBoards = (boards) => (
+  paintBoard(byId("player_board"), PLAYER, boards[PLAYER]),
+  paintBoard(byId("computer_board"), COMPUTER, boards[COMPUTER])
+);
+
+const paintBoards$ = pipe(tap(paintBoards));
+
+const displayGameOver = (computerScore) => () => {
+  const gameOverText = `GAME OVER, 
+          ${
+            computerScore.value.score === NUMBER_OF_SHIP_PARTS
+              ? "Computer"
+              : "Player"
+          }
+           won`;
+  playerScoreContainer.innerHTML = gameOverText;
+  computerScoreContainer.innerHTML = gameOverText;
+};
+
+const random = () => Math.floor(Math.random() * Math.floor(GAME_SIZE));
+
+const validClicks$ = pipe(
+  map((e) => e.target["id"]),
+  filter(e => e)
+);
+
+const playerMove = new Subject();
+const computerMove = new BehaviorSubject({ playerBoard: [], hits: {} });
+
+const shot = (
+  boards,
+  player,
+  x,
+  y
+) =>
+  ((boardValue) => (
+    (boards[player][x][y] = boardValue === EMPTY ? MISS : HIT),
+    [x, y, boards[player][x][y] === HIT, boardValue]
+  ))(boards[player][x][y]);
+
+const isValidMove = (boards, player, x, y) =>
+  boards[player][x][y] !== HIT && boards[player][x][y] !== MISS;
+
+const performShot$ = (
+  boards,
+  player,
+  nextMove
+) =>
+  pipe(
+    tap(([player, x, y]) =>
+      !isValidMove(boards, player, x, y)
+        ? nextMove(x, y, true, boards[player][x][y])
+        : noop
+    ),
+    filter(([player, x, y]) => isValidMove(boards, player, x, y)),
+    map(([_, x, y]) => shot(boards, player, x, y)),
+    tap(
+      ([x, y, wasHit, boardValue]) => (
+        paintBoards(boards),
+        nextMove(x, y, wasHit, boardValue),
+        paintScores(computerScore$, playerScore$)
+      )
+    )
+  );
+
+const computerHits = (
+  playerBoard,
+  x,
+  y,
+  wasHit,
+  boardValue
+) => {
+  if ([EMPTY, HIT, MISS].some(e => e === boardValue)) {
+    return computerMove.value;
+  }
+  if (!computerMove.value.hits[boardValue]) {
+    computerMove.value.hits[boardValue] = [];
+  }
+  computerMove.value.hits[boardValue].push({ x, y });
+  computerMove.value.playerBoard = playerBoard;
+
+  return computerMove.value;
+};
+
+const nextComputerMove = () => {
+  const hits = computerMove.value.hits;
+  const shipToPursue = Object.keys(hits).find(
+    e => hits[e].length !== parseInt(e)
+  );
+  if (!shipToPursue) {
+    return [PLAYER, random(), random()];
+  }
+
+  const playerBoard = computerMove.value.playerBoard;
+  const shipHits = hits[shipToPursue];
+  if (shipHits.length === 1) {
+    const hit = shipHits[0];
+
+    const shotCandidates = [
+      [hit.x, hit.y - 1],
+      [hit.x, hit.y + 1],
+      [hit.x - 1, hit.y],
+      [hit.x + 1, hit.y]
+    ].filter(
+      ([x, y]) =>
+        playerBoard[x] &&
+        playerBoard[x][y] !== undefined &&
+        playerBoard[x][y] !== MISS &&
+        playerBoard[x][y] !== HIT
+    );
+
+    return [PLAYER, shotCandidates[0][0], shotCandidates[0][1]];
+  }
+
+  const getOrderedHits = key =>
+    (orderedHits => [orderedHits[0], orderedHits[orderedHits.length - 1]])(
+      shipHits.sort((h1, h2) => (h1[key] > h2[key] ? 1 : -1))
+    );
+  const isHorizontal = shipHits.every(e => e.x === shipHits[0].x);
+
+  if (isHorizontal) {
+    const [min, max] = getOrderedHits("y");
+    return [
+      PLAYER,
+      min.x,
+      playerBoard[min.x][min.y - 1] !== undefined &&
+      playerBoard[min.x][min.y - 1] !== HIT &&
+      playerBoard[min.x][min.y - 1] !== MISS
+        ? min.y - 1
+        : max.y + 1
+    ];
+  }
+
+  const [min, max] = getOrderedHits("x");
+  return [
+    PLAYER,
+    playerBoard[min.x - 1] !== undefined &&
+    playerBoard[min.x - 1][min.y] !== HIT &&
+    playerBoard[min.x - 1][min.y] !== MISS
+      ? min.x - 1
+      : max.x + 1,
+    min.y
+  ];
+};
+
+const initialScore = () => ({
+  score: 0,
+  ships: { 5: 5, 4: 4, 3: 3, 2: 2, 1: 1 }
+});
+const playerScore$ = new BehaviorSubject(initialScore());
+const computerScore$ = new BehaviorSubject(initialScore());
+const isNotGameOver = _ =>
+  computerScore$.value.score < NUMBER_OF_SHIP_PARTS &&
+  playerScore$.value.score < NUMBER_OF_SHIP_PARTS;
+
+const scoreChange = (subject, boardValue) =>
+  boardValue >= SHORTEST_SHIP && boardValue <= LONGEST_SHIP
+    ? ((subject.value.ships[boardValue] -= 1),
+      subject.next({
+        score: subject.value.score + 1,
+        ships: subject.value.ships
+      }))
+    : noop;
+
+const computerShot$ = (boards) =>
+  computerMove.pipe(
+    delay(200),
+    map(_ => nextComputerMove()),
+    performShot$(boards, PLAYER, (x, y, wasHit, boardValue) =>
+      wasHit
+        ? (scoreChange(computerScore$, boardValue),
+          computerMove.next(
+            computerHits(boards[PLAYER], x, y, wasHit, boardValue)
+          ))
+        : playerMove.next()
+    )
+  );
+
+const playerShot$ = (boards) =>
+  fromEvent(document, "click").pipe(
+    validClicks$,
+    map((click) => click.split(",")),
+    filter(([player]) => player === COMPUTER),
+    performShot$(boards, COMPUTER, (x, y, wasHit, boardValue) =>
+      wasHit
+        ? scoreChange(playerScore$, boardValue)
+        : computerMove.next(computerMove.value)
+    ),
+    takeWhile(([x, y, wasHit]) => wasHit),
+    repeatWhen(_ => playerMove)
+  );
+
+const shots$ = (boards) =>
+  merge(playerShot$(boards), computerShot$(boards));
+
+const isThereEnoughSpaceForNextMove = (
+  board,
+  ship,
+  x,
+  y
+) => {
+  const row = [...board[x]];
+  row[y] = ship;
+  const col = board.map(r => r.filter((c, j) => j === y)[0]);
+  col[x] = ship;
+
+  const shipStartInCol = col.indexOf(ship);
+  const shipEndInCol = col.lastIndexOf(ship);
+  const shipStartInRow = row.indexOf(ship);
+  const shipEndInRow = row.lastIndexOf(ship);
+
+  const checkSpace = (arr, start, end) => {
+    const startIndex = arr.lastIndexOf(
+      (e, i) => e !== EMPTY && e !== ship && i < start
+    );
+    const endIndex = arr.findIndex(
+      (e, i) => e !== EMPTY && e !== ship && i > end
+    );
+    const room = arr.slice(startIndex + 1, endIndex);
+    return room.length >= ship;
+  };
+
+  return shipStartInCol !== shipEndInCol
+    ? checkSpace(col, shipStartInCol, shipEndInCol)
+    : shipStartInRow !== shipEndInRow
+    ? checkSpace(row, shipStartInRow, shipEndInRow)
+    : true;
+};
+
+const getTwoValidMoves = (row, ship) => [
+  row.indexOf(ship) - 1,
+  row.lastIndexOf(ship) + 1
+];
+
+const getValidMoves = (
+  expectedPlayer,
+  boards,
+  ship,
+  [name, x, y]
+) => {
+  const board = boards[expectedPlayer];
+  const rowIndex = board.findIndex(r => r.some(c => c === ship));
+  if (!isThereEnoughSpaceForNextMove(board, ship, x, y)) {
+    return [];
+  }
+  if (rowIndex >= 0) {
+    const row = board[rowIndex];
+    const colIndex = row.findIndex(e => e === ship);
+
+    const isHorizontal =
+      row[colIndex - 1] === ship || row[colIndex + 1] === ship;
+    if (isHorizontal) {
+      const [left, right] = getTwoValidMoves(row, ship);
+      return [{ x: rowIndex, y: left }, { x: rowIndex, y: right }];
+    }
+
+    const isVertical =
+      (board[rowIndex - 1] ? board[rowIndex - 1][colIndex] === ship : false) ||
+      (board[rowIndex + 1] ? board[rowIndex + 1][colIndex] === ship : false);
+    if (isVertical) {
+      const [up, down] = getTwoValidMoves(
+        board.map(r => r.filter((c, j) => j === colIndex)[0]),
+        ship
+      );
+      return [{ x: up, y: colIndex }, { x: down, y: colIndex }];
+    }
+
+    return [
+      { x: rowIndex, y: colIndex - 1 },
+      { x: rowIndex, y: colIndex + 1 },
+      { x: rowIndex - 1, y: colIndex },
+      { x: rowIndex + 1, y: colIndex }
+    ];
+  }
+
+  return [{ x: x, y: y }];
+};
+
+const isCellEmpty = (boards, [name, x, y]) =>
+  boards[name][x][y] === EMPTY;
+
+const areSpacesAroundCellEmpty = (boards, [name, x, y]) =>
+  (board =>
+    (board[x - 1] && board[x - 1][y] === EMPTY) ||
+    (board[x + 1] && board[x + 1][y] === EMPTY) ||
+    board[x][y - 1] === EMPTY ||
+    board[x][y + 1] === EMPTY)(boards[name]);
+
+const canMove = (
+  expectedPlayer,
+  boards,
+  ship,
+  [name, x, y]
+) => {
+  if (!isCellEmpty(boards, [name, x, y]) || name !== expectedPlayer) {
+    return false;
+  }
+
+  const validMoves = getValidMoves(expectedPlayer, boards, ship, [name, x, y]);
+  const isValidMove = validMoves.some(e => e.x === x && e.y === y);
+
+  return isValidMove;
+};
+
+const addShips$ = (player, boards) =>
+  pipe(
+    map((e) => e.split(",")),
+    filter(e => e.length === 3),
+    map(e => [e[0], parseInt(e[1]), parseInt(e[2])]),
+    scan(
+      (a, coords) => (
+        (a.validMove =
+          a.shipPartsLeft > 0
+            ? canMove(player, boards, a.ship, coords)
+            : isCellEmpty(boards, coords) &&
+              (a.ship - 1 === 1 || areSpacesAroundCellEmpty(boards, coords))),
+        a.validMove
+          ? a.shipPartsLeft > 0
+            ? (a.shipPartsLeft -= 1)
+            : ((a.ship = a.ship - 1), (a.shipPartsLeft = a.ship - 1))
+          : noop,
+        (a.coords = coords),
+        a
+      ),
+      { ship: 5, shipPartsLeft: 5, coords: [], validMove: true }
+    ),
+    filter(({ validMove }) => validMove),
+    map(
+      ({ ship, coords }) => (
+        (boards[player][coords[1]][coords[2]] = ship), boards
+      )
+    ),
+    paintBoards$,
+    take(NUMBER_OF_SHIP_PARTS)
+  );
+
+const playerSetup$ = (boards) =>
+  fromEvent(document, "click").pipe(
+    validClicks$,
+    addShips$(PLAYER, boards)
+  );
+
+const computerSetup$ = (boards) =>
+  interval().pipe(
+    tap(i => (i % 70 === 0 ? (playerScoreContainer.innerHTML += ".") : noop)),
+    map(_ => `${COMPUTER}, ${random()}, ${random()}`),
+    addShips$(COMPUTER, boards)
+  );
+
+const info$ = (container, text) =>
+  of({}).pipe(tap(_ => (container.innerHTML = text)));
+
+const createBoard = () =>
+  Array(GAME_SIZE)
+    .fill(EMPTY)
+    .map(_ => Array(GAME_SIZE).fill(EMPTY));
+
+emptyBoards$ = of({
+  [PLAYER]: createBoard(),
+  [COMPUTER]: createBoard()
+});
+
+const setup$ = (boards) =>
+  concat(
+    info$(computerScoreContainer, "Setup your board!!!"),
+    playerSetup$(boards),
+    info$(playerScoreContainer, "Computer setting up!!!"),
+    computerSetup$(boards)
+  );
+
+const game$ = emptyBoards$ 
+  .pipe(
+    paintBoards$,
+    switchMap((boards) =>
+      concat(
+        setup$(boards),
+        shots$(boards),
+      ).pipe(
+        takeWhile(isNotGameOver),
+        finalize(displayGameOver(computerScore$))
+      )
+    )
+  );
+
+let subscribe = 
+merge(
+  game$,
+  computerScore$,
+  playerScore$
+).subscribe();
+
+</script>
+
+</head>
+
+</html>

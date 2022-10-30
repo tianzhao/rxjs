@@ -1,0 +1,88 @@
+
+<!DOCTYPE html>
+<html>
+
+<style>
+	#refresh {
+		position: absolute;
+		width: 20px;
+		height: 20px;
+		background: grey;
+		border-radius: 50%;
+		left: 50%;
+	}
+
+	#point {
+		position: absolute;
+		width: 10px;
+		height: 10px;
+		background: lightgrey;
+		border-radius: 50%;
+		left: 51%;
+    top: 105px;
+	}
+
+  #data {
+		position: absolute;
+    top: 150px;
+	}
+</style>
+
+
+<body>
+<div id='refresh'></div>
+<div id='point'></div>
+<div id='data'>Swipe gray dot down to get latest date/time</div>
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+
+const setRefreshPos = y =>
+  document.getElementById('refresh').style.top = `${y}px`;
+const resetRefresh = () => setRefreshPos(10);
+const setData = data => document.getElementById('data').innerText = data;
+
+const fakeRequest = () => of(new Date().toUTCString()).pipe(
+  tap(_ => console.log('request')), delay(1000)
+);
+
+const takeUntilMouseUpOrRefresh$ = pipe(
+  takeUntil(fromEvent(document, 'mouseup')),
+  takeWhile(y => y < 110),
+);
+const moveDot = y => of(y).pipe(tap(setRefreshPos));
+const refresh$ = of({}).pipe(
+  tap(resetRefresh),
+  tap(e => setData('...refreshing...')),
+  exhaustMap(_ => fakeRequest()),
+  tap(setData)
+)
+
+fromEvent(document, 'mousedown').pipe(
+  mergeMap(_ => fromEvent(document, 'mousemove')),
+  map((e) => e.clientY),
+  takeUntilMouseUpOrRefresh$,
+  finalize(resetRefresh),
+  exhaustMap(y => iif(
+    () => y < 100,
+    moveDot(y),
+    refresh$
+  )),
+  finalize(() => console.log('end')),
+  repeat()
+).subscribe();
+
+
+</script>
+
+</head>
+
+</html>

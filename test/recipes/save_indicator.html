@@ -1,0 +1,99 @@
+
+<!DOCTYPE html>
+<html>
+<style>
+#note-input {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.save-indicator {
+  display: flex;
+  flex-direction: row-reverse;
+  font-size: 11px;
+}
+</style>
+
+<body>
+<div class="container">
+  <div>Take a note!</div>
+  <textarea id="note-input"></textarea>
+  <div class="save-indicator">All changes saved</div>
+</div>
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+// track in progress saves
+let savesInProgress = 0;
+
+// references
+const input = document.getElementById('note-input');
+const saveIndicator = document.querySelector('.save-indicator');
+
+// streams
+const keyup$ = fromEvent(input, 'keyup');
+
+// fake save request
+const saveChanges = value => {
+  return of(value).pipe(delay(1500))
+};
+
+/**
+ * Trigger a save when the user stops typing for 200ms
+ * After new data has been successfully saved, so a saved
+ * and last updated indicator.
+ */
+const inputToSave$ = keyup$
+  .pipe(
+    debounceTime(200),
+    // @ts-ignore
+    map(e => e.target.value),
+    distinctUntilChanged(),
+    share()
+  );
+
+const savesInProgress$ = inputToSave$.pipe(
+  mapTo(of('Saving')),
+  tap(_ => savesInProgress++)
+);
+
+const savesCompleted$ = inputToSave$.pipe(
+   mergeMap(saveChanges),
+   tap(_ => savesInProgress--),
+   // ignore if additional saves are in progress
+   filter(_ => !savesInProgress),
+   mapTo(concat(
+    // display saved for 2s
+    of('Saved!'),
+    empty().pipe(delay(2000)),
+    // then last updated time, defer for proper time
+    defer(() => of(`Last updated: ${new Date()}`))
+  ))
+);
+
+let subscribe = merge(
+  savesInProgress$,
+  savesCompleted$
+).pipe(
+  /*
+   If new save comes in when our completion observable is running, we want to switch to it for a status update.
+  */
+  switchAll()
+)
+.subscribe(status => {
+  saveIndicator.innerHTML = status;
+});
+
+</script>
+
+</head>
+
+</html>

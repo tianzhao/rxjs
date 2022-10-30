@@ -1,0 +1,203 @@
+
+<!DOCTYPE html>
+<html>
+
+<style>
+	.grid {
+		border-spacing: 2px;
+	}
+
+	.cell {
+		width: 50px;
+		height: 50px;
+		background: grey;
+		display: table-cell;
+		border-radius: 50%;
+		transform: scale(0.5);
+		text-align: center;
+		vertical-align: middle;
+		color: white;
+	}
+
+	.pulse div {
+		animation-name: pulse;
+		animation-duration: 2s;
+		animation-iteration-count: infinite;
+	}
+
+	#result {
+		height: 20px;
+	}
+
+	body {
+		font-size: 12px;
+	}
+
+	@keyframes pulse {
+		from {
+			transform: scale(1);
+		}
+		50% {
+			transform: scale(0.99);
+		}
+		to {
+			transform: scale(1);
+		}
+	}
+</style>
+
+<body>
+Expected Password:
+<input id="expectedPassword" value="1252"/>
+<hr/>
+Password:
+<div class="grid pulse">
+  <div>
+    <div class="cell" id="c1">1</div>
+    <div class="cell" id="c2">2</div>
+    <div class="cell" id="c3">3</div>
+  </div>
+  <div>
+    <div class="cell" id="c4">4</div>
+    <div class="cell" id="c5">5</div>
+    <div class="cell" id="c6">6</div>
+  </div>
+  <div>
+    <div class="cell" id="c7">7</div>
+    <div class="cell" id="c8">8</div>
+    <div class="cell" id="c9">9</div>
+  </div>
+</div>
+
+<div id="result"></div>
+
+<hr/>
+  <ul>
+    <li>Use mouse to 'swipe' across the lock pad (hold mouse button and swipe :) ).
+    </li>
+    <li> Pad will turn green if password is correct or red if password is incorrect.
+    </li>
+    <li> You can set password to whatever sequence you like.</li>
+  </ul>
+<hr/>
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+const createPadObject = (id, rectange) => ({
+  id: id,
+  left: rectange.left,
+  right: rectange.right,
+  top: rectange.top,
+  bottom: rectange.bottom
+});
+
+const setResultText = text => document.getElementById('result').innerText = text;
+
+const setPasswordPads = color => Array.from(document
+  .querySelectorAll('.cell'))
+  .forEach((v) => v.style.background = color)
+
+const getPad = id => document.getElementById(`c${id}`);
+
+const pads = Array
+  .from({ length: 9 }, (_, n) => n + 1)
+  .map(v => createPadObject(v, getPad(v).getBoundingClientRect()));
+
+const markTouchedPad = v => {
+  const pad = getPad(v);
+  pad.style.background = 'lightgrey';
+  if (!pad.animate) return; //animate does not work in IE
+  const animation = [
+    { transform: 'scale(0.9)' },
+    { transform: 'scale(1)' }
+  ];
+  const animationOptions = {
+    duration: 300,
+    iterations: 1
+  };
+  pad.animate(animation, animationOptions);
+  document.getSelection().removeAllRanges();
+};
+
+const setResult = result => {
+  setPasswordPads(result ? 'MediumSeaGreen' : 'IndianRed');
+  setResultText('Password ' + (result ? 'matches :)' : 'does not match :('));
+}
+
+const displaySelectedNumbersSoFar = v =>
+  document.getElementById('result').textContent += v;
+
+const resetPasswordPad = () => {
+  setResultText('');
+  setPasswordPads('gray');
+}
+
+
+const sub = new Subject();
+const expectedPasswordUpdate$ = fromEvent(document.getElementById('expectedPassword'), 'keyup')
+  .pipe(
+    map((e) => e.target.value),
+    tap(pass => sub.next(pass.split('').map(e => parseInt(e))))
+  );
+let expectedPassword = [1, 2, 5, 2];
+const expectedPassword$ = sub.pipe(tap((v) => expectedPassword = v));
+
+const takeMouseSwipe = pipe(
+  // take mouse moves
+  switchMap(_ => fromEvent(document, 'mousemove')),
+  // once mouse is up, we end swipe
+  takeUntil(fromEvent(document, 'mouseup')),
+  throttleTime(50)
+);
+const checkIfPasswordMatch = password => from(password).pipe(sequenceEqual(from(expectedPassword)));
+const getXYCoordsOfMousePosition = ({ clientX, clientY }) => ({ x: clientX, y: clientY });
+const findSelectedPad = v => pads.find(r =>
+  v.x > r.left &&
+  v.x < r.right &&
+  v.y > r.top &&
+  v.y < r.bottom);
+const getIdOfSelectedPad = pipe(
+  filter(v => !!v),
+  pluck('id'),
+  distinctUntilChanged()
+);
+
+const actualPassword$ = fromEvent(document, 'mousedown')
+  .pipe(
+    // new stream so reset password pad and take swipe until mouse up
+    tap(resetPasswordPad),
+    takeMouseSwipe,
+    // as we swipe, we mark pads as touchedand and display selected numbers
+    map(getXYCoordsOfMousePosition),
+    map(findSelectedPad),
+    getIdOfSelectedPad,
+    tap(markTouchedPad),
+    tap(displaySelectedNumbersSoFar),
+    // we need an array of numbers from current swipe which we can pass to checkIfPasswordMatch
+    toArray(),
+    // on mouse up (swipe end), switchMap to new stream to check if password match
+    switchMap(checkIfPasswordMatch),
+    tap(setResult),
+    // takeUntil inside takeMouseSwipe terminated stream so we repeat from beginning (mousedown) 
+    repeat()
+  )
+
+let subscribe = merge(
+  expectedPassword$,
+  expectedPasswordUpdate$,
+  actualPassword$
+).subscribe();
+
+</script>
+
+</head>
+
+</html>

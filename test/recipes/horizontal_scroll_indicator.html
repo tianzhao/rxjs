@@ -1,0 +1,55 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+<style>
+  #indication {
+    position: fixed;
+    width: 5px;
+    height: 7px;
+    background-color: #FF3366;
+    left: 0px;
+    right: 0px;
+    top: 0px;
+    z-index: 2;
+  }
+</style>
+
+<body>
+
+<div id="indication">&nbsp;</div>
+Scroll down!!!
+<div class="app" style="position: absolute; margin-top: 3000px;">Boom!</div>
+
+</body>
+
+<script>
+const scrollIndication = document.getElementById('indication');
+const getScrollWidth = () => {
+  const doc = document.documentElement;
+  // https://www.w3schools.com/howto/howto_js_scroll_indicator.asp
+  const winScroll = doc.scrollTop;
+  const height = doc.scrollHeight - doc.clientHeight;
+  
+  return (winScroll / height) * 100;
+}
+const setScroll = _ => 
+  scrollIndication.style.width = getScrollWidth() + '%'
+
+fromEvent(document, 'scroll')
+  .pipe(
+    throttleTime(20),
+    tap(setScroll)
+  )
+.subscribe()
+</script>
+
+</head>
+
+</html>

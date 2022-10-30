@@ -1,0 +1,108 @@
+
+<!DOCTYPE html>
+<html>
+
+<body>
+
+
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+
+const mine = 9;
+const size = 10;
+const renderMinefield = arr =>
+  arr.forEach((r, ri) =>
+    (elem =>
+      r.forEach((c, ci) =>
+        (col => (
+          col.innerText = '_',
+          col.id = `${ri}${ci}`,
+          elem.appendChild(document.createTextNode('\u00A0\u00A0')),
+          elem.appendChild(col))
+        )(document.createElement('span')),
+        document.body.appendChild(elem)))
+      (document.createElement('div')));
+
+const renderScore = val =>
+  (scoreElem => scoreElem.innerText = parseInt(scoreElem.innerText) + val)(document.getElementById('score'));
+
+const renderGameOver = () => document.body.innerHTML += '<br/>GAME OVER';
+
+const addElem = decorator => (elem => (
+  decorator(elem),
+  document.body.appendChild(elem))
+)(document.createElement('span'));
+
+addElem(elem => elem.innerText = 'Score: ');
+addElem(elem => (elem.id = 'score', elem.innerText = '0'));
+
+const randomNumber = () => Math.floor(Math.random() * Math.floor(size));
+
+const addMines = arr => {
+  for (let i = 0; i < size/2; i++) {
+    arr[randomNumber()][randomNumber()] = mine;
+  }
+
+  return arr;
+}
+
+const mark = (arr, x, y) =>
+  arr[x] !== undefined && arr[x][y] !== undefined
+    ? arr[x][y] += (arr[x][y] === mine ? 0 : 1)
+    : () => { };
+
+const addMarks = arr => {
+  for (let ri = 0; ri < size; ri++) {
+    for (let ci = 0; ci < size; ci++) {
+      if (arr[ri][ci] === mine) {
+        mark(arr, ri - 1, ci + 1);
+        mark(arr, ri - 1, ci);
+        mark(arr, ri - 1, ci - 1);
+        mark(arr, ri, ci + 1);
+        mark(arr, ri, ci - 1);
+        mark(arr, ri + 1, ci + 1);
+        mark(arr, ri + 1, ci);
+        mark(arr, ri + 1, ci - 1);
+      }
+    }
+  }
+  return arr;
+};
+
+const mines$ = of(Array(size).fill(0).map(e => Array(size).fill(0)))
+  .pipe(
+    map(addMines),
+    map(addMarks),
+    tap(renderMinefield)
+  );
+
+const click$ = mines => fromEvent(document, 'click')
+  .pipe(
+    map(({ clientX, clientY }) =>
+      document.elementFromPoint(clientX, clientY)),
+    filter(elem => elem.id !== ''),
+    tap(elem => (val => (
+      renderScore(val === mine || elem.innerHTML !== '_' ? 0 : val),
+      elem.innerHTML = val)
+    )(mines[elem.id[0]][elem.id[1]])),
+    pluck('id'),
+    takeWhile(([x, y]) => mines[x][y] !== mine),
+    finalize(renderGameOver)
+  );
+
+let subscribe = mines$.pipe(switchMap(click$)).subscribe();
+
+</script>
+
+</head>
+
+</html>

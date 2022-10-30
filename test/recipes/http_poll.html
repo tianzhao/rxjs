@@ -1,0 +1,207 @@
+
+<!DOCTYPE html>
+<html>
+
+<body>
+
+<h1> RxJS Polling Recipe</h1>
+<p> 
+  Select Cats or Meats and start polling! The Cats option will request random <a href="https://plackitten.com">place kitten</a> images, and the meats option will request random blocks of <a href="https://baconipsum.com/json-api/">bacon-ipsum</a>.
+</p>
+<p> Polling Status: <span id="polling-status"> Stopped </span> </p>
+<div>
+  <label for="catsCheckbox">Cats</label>
+  <input type="radio" name="type" id="catsCheckbox" value="cats" checked />
+  <label for="meatsCheckbox">Meats</label>
+  <input type="radio" name="type" id="meatsCheckbox" value="meats"/>
+</div>
+
+<div>
+  <button id="start">Start polling</button>
+  <button id="stop">Stop polling</button>
+</div>
+
+<img style="max-width: 400px; max-height: 400px;" id="cat" src="https://placekitten.com/g/205/205" alt="incoming cats!"/>
+
+
+<p id="text" style="display: none;">Text Will appear here</p>
+
+</body>
+
+<head>
+
+<style>
+#start {
+  border: none;
+  background-color: #22AA22;
+  color: #FFFFFF;
+  font-weight: bolder;
+  padding: 10px;
+}
+
+#stop {
+  border: none;
+  background-color: #AA2222;
+  color: #FFFFFF;
+  font-weight: bolder;
+  padding: 10px;
+}
+</style>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+
+// Constants for Cat Requests
+const CATS_URL = "https://placekitten.com/g/{w}/{h}";
+function mapCats(response) {
+
+  return from(new Promise((resolve, reject) => {
+      var blob = new Blob([response], {type: "image/png"});
+      let reader = new FileReader();      
+      reader.onload = (data) => {
+        resolve(data.target.result);
+      };
+      reader.readAsDataURL(blob);
+  }));
+}
+
+// Constants for Meat Requests
+const MEATS_URL = "https://baconipsum.com/api/?type=meat-and-filler";
+function mapMeats(response) {
+  const parsedData = JSON.parse(response);
+  return of(parsedData ? parsedData[0] : '');
+}
+
+/*************************
+ * Our Operating State
+ *************************/
+ // Which type of data we are requesting
+let requestCategory = 'cats';
+// Current Polling Subscription
+let pollingSub;
+/*************************/
+
+/**
+ * This function will make an AJAX request to the given Url, map the 
+ * JSON parsed repsonse with the provided mapper function, and emit
+ * the result onto the returned observable.
+ */
+function requestData(url, mapFunc) {
+  console.log(url)
+  const xhr = new XMLHttpRequest();
+  return from(new Promise((resolve, reject) => {
+    
+    // This is generating a random size for a placekitten image
+    //   so that we get new cats each request.
+    const w = Math.round(Math.random() * 400);
+    const h = Math.round(Math.random() * 400);
+    const targetUrl = url
+      .replace('{w}', w.toString())
+      .replace('{h}', h.toString());
+
+    xhr.addEventListener("load", () => {
+      resolve(xhr.response);
+    });
+    xhr.open("GET", targetUrl);
+    if(requestCategory === 'cats') {
+      // Our cats urls return binary payloads
+      //  so we need to respond as such.
+      xhr.responseType = "arraybuffer";
+    }
+    xhr.send();
+  }))
+  .pipe(
+    switchMap((data) => mapFunc(xhr.response)),
+    tap((data) => console.log('Request result: ', data))
+  );
+}
+
+
+/**
+ * This function will begin our polling for the given state, and
+ * on the provided interval (defaulting to 5 seconds)
+ */
+function startPolling(category, interval = 5000) {
+  const url = category === 'cats' ? CATS_URL : MEATS_URL;
+  const mapper = category === 'cats' ? mapCats : mapMeats;
+
+  return timer(0, interval)
+    .pipe(
+      switchMap(_ => requestData(url, mapper))
+    );
+}
+
+// Gather our DOM Elements to wire up events
+const startButton = document.getElementById('start');
+const stopButton = document.getElementById('stop');
+const text = document.getElementById('text');
+const pollingStatus = document.getElementById('polling-status');
+const catsRadio = document.getElementById('catsCheckbox');
+const meatsRadio = document.getElementById('meatsCheckbox');
+const catsClick$ = fromEvent(catsRadio, 'click').pipe(mapTo('cats'));
+const meatsClick$ = fromEvent(meatsRadio, 'click').pipe(mapTo('meats'));
+const catImage = document.getElementById('cat');
+// Stop polling
+let stopPolling$ = fromEvent(stopButton, 'click');
+
+function updateDom(result) {
+  if (requestCategory === 'cats') {
+    catImage.src = result;
+    console.log(catImage);
+  } else {
+    text.innerHTML = result;
+  }
+}
+
+function watchForData(category) {
+    // Start  new Poll
+    return startPolling(category, 5000).pipe(
+      tap(updateDom), 
+      takeUntil(
+        // stop polling on either button click or change of categories
+        merge(
+          stopPolling$, 
+          merge(catsClick$, meatsClick$).pipe(filter(c => c !== category))
+        ) 
+      ),
+      // for demo purposes only
+      finalize(() => pollingStatus.innerHTML = 'Stopped')
+    )
+}
+
+// Handle Form Updates
+catsClick$
+  .subscribe((category) => {
+    requestCategory = category;
+    catImage.style.display = 'block';
+    text.style.display = 'none';
+  });
+
+meatsClick$
+  .subscribe((category) => {
+    requestCategory = category;
+    catImage.style.display = 'none';
+    text.style.display = 'block';
+  });
+
+// Start Polling
+let subscribe = fromEvent(startButton, 'click')
+.pipe(
+  // for demo purposes only
+  tap(_ => pollingStatus.innerHTML = 'Started'),
+  mergeMap(_ => watchForData(requestCategory))
+)
+.subscribe();
+
+
+
+</script>
+
+</head>
+
+</html>

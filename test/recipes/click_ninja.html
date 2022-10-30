@@ -1,0 +1,79 @@
+
+<!DOCTYPE html>
+<html>
+
+
+<body>
+	<div>How fast can you click?!</div>
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+
+const texts = {
+  0: 'click, click',
+  1: 'keep clicking',
+  2: 'wow',
+  3: 'not tired yet?!',
+  4: 'click master!',
+  5: 'inhuman!!!',
+  6: 'ininhuman!!!'
+};
+
+const text = (score, level) => `${texts[level]} \n ${score}`
+
+const render = (score, level) => {
+  const id = 'level' + level;
+  const element = document.getElementById(id);
+  const innerText = text(score, level);
+  if (element) {
+    element.innerText = innerText;
+  } else {
+    const elem = document.createElement('div');
+    elem.id = id;
+    elem.style.zIndex = `${level}`;
+    elem.style.position = 'absolute';
+    elem.style.height = '150px';
+    elem.style.width = '150px';
+    elem.style.borderRadius = '10px'
+    const position = level * 20;
+    elem.style.top = position + 'px';
+    elem.style.left = position + 'px';
+    const col = 100 + position;
+    elem.style.background = `rgb(0,${col},0)`;
+    elem.style.color = 'white';
+    elem.innerText = innerText;
+    elem.style.textAlign = 'center';
+    elem.style.verticalAlign = 'middle';
+    elem.style.lineHeight = '90px';
+    document.body.appendChild(elem);
+  }
+};
+
+const clear = () => document.body.innerText = '';
+
+let subscribe = fromEvent(document, 'mousedown').pipe(
+  timeInterval(),
+  scan((state, timeInterval) => ({
+    score: state.score + 1,
+    interval: timeInterval.interval,
+    threshold: state.threshold - 2
+  }), { score: 0, interval: 0, threshold: 300 }),
+  takeWhile((state) => state.interval < state.threshold),
+  tap((state) => render(state.score, Math.floor(state.score / 10))),
+  finalize(clear),
+  repeat()
+).subscribe();
+
+</script>
+
+</head>
+
+</html>

@@ -1,0 +1,99 @@
+
+<!DOCTYPE html>
+<html>
+	
+<body>
+
+<style>
+	#dot {
+		margin-top: 10px;
+		height: 30px;
+		width: 30px;
+		background-color: lightgray;
+		border-radius: 50%;
+		transition: all 0.6s ease-in-out;
+		text-align: center;
+		color: white;
+	}
+
+	#timer {
+		position: absolute;
+		top: 150px;
+		left: 150px;
+		opacity: 0.1;
+		font-size: 60px;
+	}
+</style>
+
+<div id="timer"></div>
+<div id="dot"></div>
+
+</body>
+
+<head>
+
+<meta charset="utf-8">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="../../rxjs.js"></script>
+
+
+<script>
+
+const random = () => Math.random() * 300;
+const elem = id => document.getElementById(id);
+const setElementText = (elem, text) =>
+  elem.innerText = text.toString();
+const _timer = elem('timer');
+const setDotSize = size => {
+  dot.style.height = `${size}px`;
+  dot.style.width = `${size}px`;
+}
+
+const dot = elem('dot');
+const updatedDot = score => {
+  if (score % 3 === 0) {
+    dot.style.backgroundColor =
+      '#' + (Math.random() * 0xFFFFFF << 0).toString(16);
+  }
+  setElementText(dot, score);
+}
+const setTimerText = text => setElementText(_timer, text);
+const moveDot = () => {
+  setDotSize(5);
+  dot.style.transform = `translate(${random()}px, ${random()}px)`;
+}
+const resetDotSize = () => setDotSize(30);
+
+const makeInterval = (val) => interval(val.intrvl).pipe(
+  map(v => 5 - v),
+  tap(setTimerText)
+);
+const gameState = { score: 0, intrvl: 500 };
+const nextState = (acc) => ({
+  score: acc.score += 1,
+  intrvl: acc.score % 3 === 0 ? acc.intrvl -= 50 : acc.intrvl
+});
+const isNotGameOver = intervalValue => intervalValue >= 0;
+
+const game$ = fromEvent(dot, 'mouseover')
+  .pipe(
+    tap(moveDot),
+    scan(nextState, gameState),
+    tap(state => updatedDot(state.score)),
+    switchMap(makeInterval),
+    tap(resetDotSize),
+    takeWhile(isNotGameOver)
+  );
+
+let subscribe = game$.subscribe(
+  n => { },
+  e => { },
+  () => setTimerText('ouch!')
+);
+
+</script>
+
+</head>
+
+</html>
