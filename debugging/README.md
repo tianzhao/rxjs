@@ -25,6 +25,6 @@ let result = safe()
 console.log(result)
 ```
 
-or apply it to all subscriptions invoking the function without any arguments.
+or apply it to all subscriptions by invoking the function without any arguments.
 See [safe.html](safe.html) for more examples.
 
