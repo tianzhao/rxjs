@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="rxjs.js"></script>
+<script src="safe.js"></script>
+</head>
+<body>
+<script>
+
+function query(x) {
+    return new Promise(k => setTimeout(k, 1000, x))
+}
+
+let example1 = of(1).map(query)
+let example2 = of(1).map(query).catchError(h => "good")
+
+// pass the subscription object to `safe` function to check its runtime invariant
+let subscription = example1.subscribe(x => x)
+console.log(safe(subscription))
+
+</script>
+</body>
+</html>
