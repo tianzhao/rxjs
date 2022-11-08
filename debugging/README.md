@@ -8,6 +8,7 @@ so they can be tracked down more easily.
 The filtered stack trace can be accessed from the `.stack` field on the error
 value.
 
+An example in [stack.html](stack.html):
 ```javascript
 function f(x) { return x.bad; }
 of(1).switchMap(x => f()).subscribe(x => x, e => console.log(e.stack))
@@ -16,7 +17,7 @@ of(1).switchMap(x => f()).subscribe(x => x, e => console.log(e.stack))
 Runtime invariant
 =================
 The example safety rules based on the semantics is implemented in
-[safe](safe.js). It is implemented as a function `safe`. For usage, apply the
+[safe.js](safe.js). It is implemented as a function `safe`. For usage, apply the
 function on a subscription object
 ```javascript
 let sub = of(1,2,3).map(x => x * 2).subscribe();
