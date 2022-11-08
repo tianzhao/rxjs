@@ -21,7 +21,7 @@ The example safety rules based on the semantics is implemented in
 function on a subscription object
 ```javascript
 let sub = of(1,2,3).map(x => x * 2).subscribe();
-let result = safe()
+let result = safe(sub)
 console.log(result)
 ```
 
