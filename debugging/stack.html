@@ -12,7 +12,10 @@
 function f(x) { return x.bad; }
 function g(x) { of(2); }
 
-of(1).switchMap(x => f()).subscribe(x => x, e => console.log(e.stack))
+of(1).switchMap(x => f()).subscribe(x => x, e => {
+  console.log(e.stack)
+  console.log(e.rxGraphTrace)
+})
 
 </script>
 </body>

@@ -11,8 +11,24 @@ value.
 An example in [stack.html](stack.html):
 ```javascript
 function f(x) { return x.bad; }
-of(1).switchMap(x => f()).subscribe(x => x, e => console.log(e.stack))
+of(1).switchMap(x => f()).subscribe(x => x, e => {
+  console.log(e.stack)
+  console.log(e.rxGraphTrace)
+})
 ```
+
+`x` is `undefined` in `f` and will throw an exception when it tries to access
+a property on an undefined value. The error handler will print the stack trace
+and part of the subscription graph where the error occurs tracing back to its
+sources:
+```
+TypeError: Cannot read properties of undefined (reading 'bad')
+    at f (stack.html:12:26)
+    at <anonymous> (stack.html:15:22)
+    at stack.html:15:7
+['fmap', 'of']
+```
+
 
 Runtime invariant
 =================

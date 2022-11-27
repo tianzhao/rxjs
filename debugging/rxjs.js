@@ -531,7 +531,7 @@ class RxError {
 				return [source.map(traverse)]
 			}
 			else if (source instanceof Object) {
-				if (seen.has(source)) return "seen";
+				if (seen.has(source)) return "...";
 				seen.add(source)
 				if (source.source) {
 					return [source.name].concat(traverse(source.source))
