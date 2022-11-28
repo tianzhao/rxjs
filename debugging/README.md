@@ -26,7 +26,7 @@ TypeError: Cannot read properties of undefined (reading 'bad')
     at f (stack.html:12:26)
     at <anonymous> (stack.html:15:22)
     at stack.html:15:7
-['fmap', 'of']
+['switchMap', 'of']
 ```
 
 

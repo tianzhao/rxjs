@@ -663,7 +663,7 @@ class Observable {
 		return new Observable(ef, 'concatAll')
 	}
 
-	endWith (...lst) { return Observable.concat(this, Observable.of(...lst)).rename('endWith') }
+	endWith (...lst) { return Observable.concat(this, Observable.of(...lst).rename('endWith')).rename('endWith') }
 
 	static forkJoin (...lst) {
 		let ef = (e, subscription) => new AsyncM(async p => {
@@ -811,7 +811,7 @@ class Observable {
 
 	race (...lst) { return Observable.race(this, ...lst) }
 
-	startWith (...lst) { return Observable.concat(Observable.of(...lst), this).rename('startWith') }
+	startWith (...lst) { return Observable.concat(Observable.of(...lst).rename('startWith'), this).rename('startWith') }
 
 	withLatestFrom (...lst) {
 		let f
@@ -1077,7 +1077,7 @@ class Observable {
 		return Observable.generate(low, x=> x<=high, x=>x+1).rename(`range(${low}, ${high})`)
 	}
 
-	static throwError (ex) { return Observable.of(null).map(_ => { throw ex }).rename('throwError') }
+	static throwError (ex) { return Observable.of(null).rename('throwError').map(_ => { throw ex }).rename('throwError') }
 
 	static timer(d, dt) {
 		let ef = (e, _) => AsyncM.timeout(d)
@@ -1219,7 +1219,7 @@ class Observable {
 	}
 
 	debounceTime (dt) {
-		return this.debounce(_ => timer(dt)).rename(`debounceTime(${dt})`)
+		return this.debounce(_ => timer(dt).rename(`debounceTime(${dt})`)).rename(`debounceTime(${dt})`)
 	}
 
 	distinct (keySelector = x => x, flush) {
@@ -1298,7 +1298,7 @@ class Observable {
 		return new Observable(ef, 'filter') 	
 	}
 
-	find (predicate) { return this.filter(predicate).take(1).rename('find') }
+	find (predicate) { return this.filter(predicate).rename('find').take(1).rename('find') }
 
 	first (predicate = _ => true, defaultValue) {
 		let ef = (e, subscription) => new AsyncM(async p => {
@@ -1384,7 +1384,7 @@ class Observable {
 		return new Observable(ef, 'sampler')
 	}
 
-	single (predicate) { return this.filter(predicate).take(1).rename('single'); }
+	single (predicate) { return this.filter(predicate).rename('single').take(1).rename('single'); }
 
 	skip (size) { return this.skipWhile((_, index) => index < size).rename(`skip(${size})`) }
 
@@ -1700,9 +1700,9 @@ class Observable {
 		return new Observable(ef, 'bufferWhen') 
 	}
 
-	concatMap (f) { return this.fmap(f).concatAll().rename('concatMap') } 
+	concatMap (f) { return this.fmap(f).rename('concatMap').concatAll().rename('concatMap') } 
 
-	concatMapTo (ob, f) { return this.concatMap(x=>ob.fmap(y=>f(x,y))).rename('concatMapTo') } 
+	concatMapTo (ob, f) { return this.concatMap(x=> ob.fmap(y=> f(x,y)).rename('concatMapTo')).rename('concatMapTo') } 
 
 	count () {
 		let ef = (e, subscription) => new AsyncM(async p => {
@@ -1846,14 +1846,13 @@ class Observable {
 
 	mapTo (x) { return this.fmap(_ => x).rename('mapTo') }
 
-	mergeMap (f, selector, concurrent) { 
-		if (selector == undefined) 
-			return this.fmap(f).mergeAll().rename('mergeMap') 
+	mergeMap (f, selector, concurrent) {
+		if (selector == undefined)
+			return this.fmap(f).rename('mergeMap').mergeAll().rename('mergeMap') 
 		else 
-			return this.fmap((x, i) => Observable.fromPromise(f(x)).fmap((y, j)=>[x, y, i, j]))
-				.mergeAll(concurrent)
-				.fmap(lst => selector(...lst))
-				.rename('mergeMap') 
+			return this.fmap((x, i) => Observable.fromPromise(f(x)).fmap((y, j)=> [x, y, i, j]).rename('mergeMap')).rename('mergeMap')
+				.mergeAll(concurrent).rename('mergeMap')
+				.fmap(lst => selector(...lst)).rename('mergeMap')
 	}
 
 	static fromPromise (ob) { return (ob instanceof Promise) ? Observable.from(ob) : ob }
@@ -1862,9 +1861,9 @@ class Observable {
 		return Observable.fix(
 			ob => {
 				let index = 0
-				return this.withLatestFrom(ob.startWith(seed))
-				  .fmap(([e, c]) => accumulator(c, e, index++))
-				  .mergeAll(concurrent)
+				return this.withLatestFrom(ob.startWith(seed)).rename('mergeScan')
+				  .fmap(([e, c]) => accumulator(c, e, index++)).rename('mergeScan')
+				  .mergeAll(concurrent).rename('mergeScan')
 			}
 		).rename('mergeScan'); 
 	}
@@ -1879,7 +1878,7 @@ class Observable {
 		
 			return subject.ef(e, subscription)
 		}
-		return new Observable(ef, 'fix') 	
+		return new Observable(ef, 'fix')
 	}
 
 	static partition (ob, predicate, thisArg) {
@@ -1891,7 +1890,7 @@ class Observable {
 			(c!=undefined && c[e]!=undefined) ? c[e] : undefined, x)).rename('pluck') 
 	}
 
-	reduce (accumulator, seed) { return this.scan(accumulator, seed).last().rename('reduce') } 
+	reduce (accumulator, seed) { return this.scan(accumulator, seed).rename('reduce').last().rename('reduce') } 
 
 	// accumulator :: (c, e) -> c
 	// seed :: c
@@ -1921,13 +1920,11 @@ class Observable {
 		return new Observable(ef, 'scan') 			
 	}
 
-	switchMap (f, selector) { return this.bind(f, selector).rename('switchMap') }
-
-	bind (f, selector) { 
+	switchMap (f, selector) {
 		if (selector == undefined) 
-			return this.fmap(f).join().rename('bind')
+			return this.fmap(f).rename('switchMap').join().rename('switchMap')
 		else
-			return this.fmap((x,i) => f(x).fmap((y,j) => selector(x,y,i,j))).join().rename('bind') 	
+			return this.fmap((x,i) => f(x).fmap((y,j) => selector(x,y,i,j)).rename('switchMap')).rename('switchMap').join().rename('switchMap')
 	}
 
 	switchAll () { return this.join().rename('switchAll') }
