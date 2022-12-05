@@ -558,6 +558,15 @@ class Observable {
 	// static _complete(e) { return AsyncM.timeout(0).fmap(_ => e.complete()) }
 	// static _error(e, ex) { return AsyncM.timeout(0).fmap(_ => e.error(ex)) }
 
+    static _make (name, ob) {
+        let ef = (e, subscription) => new AsyncM(async p => {
+            subscription.inner = ob._subscribe(x => e.emit(x), e, p)
+            subscription.inner.run()
+        })
+
+        return new Observable(ef, name)
+    }
+
 	/*
 	 * Combination operators
 	 */
@@ -567,12 +576,13 @@ class Observable {
 			let k = x => {
 				if (x != End) lst.push(x.value)
 				else {
-					Observable.combineLatest(...lst)
-						._subscribe(s => subscription.child = s, x => e.emit(x), e, p)
+					subscription.child = Observable.combineLatest(...lst)._subscribe(x => e.emit(x), e, p)
+					subscription.child.run()
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, x=>k(x), e, p)
+			subscription.source = this._subscribe(x => k(x), e, p)
+			subscription.source.run()
 		})
 
 		return new Observable(ef, 'combineAll')
@@ -612,7 +622,8 @@ class Observable {
 
 			subscription.source = []
 			lst.forEach((ob, i) => {
-				Observable.fromPromise(ob)._subscribe(s => subscription.source.push(s), x => k(x, i), e, p)
+			    subscription.source[i] = Observable.fromPromise(ob)._subscribe(x => k(x, i), e, p)
+			    subscription.source[i].run()
 			})
 		})
 		
@@ -622,16 +633,19 @@ class Observable {
 	static concat (...lst) {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let index = 0
-			subscription.source = []
 
 			let k = x => {
-				if (x != End || index > lst.length-1) 
+				if (x != End || index >= lst.length)
 					e.emit(x)
 
-				if (x == End && index <= lst.length-1) // && p.isAlive()) 
-					lst[index++]._subscribe(s => subscription.source.push(s), k, e, p)
+				if (x == End && index < lst.length) {// && p.isAlive()) 
+					subscription.source = lst[index++]._subscribe(k, e, p)
+					subscription.source.run()
+                }
+
 			}
-			lst[index++]._subscribe(s => subscription.source.push(s), k, e, p)
+			subscription.source = lst[index++]._subscribe(k, e, p)
+			subscription.source.run()
 		})
 
 		return new Observable(ef, 'concat')
@@ -645,25 +659,32 @@ class Observable {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let ch = new MChannel() // TODO: add a buffer size parameter
 
-			this._subscribe(s => subscription.source = s, x => ch.write(x)._run(p), e, p)
+			subscription.source = this._subscribe(x => ch.write(x)._run(p), e, p)
+			subscription.source.run()
 
-			let x = await ch.read.run(p)	
+			let x = await ch.read.run(p)
 			let k = y => {
 				if (y == End) {	
 					ch.read.bind(x => {
 						if (x == End) e.complete()
-						else x.value._subscribe(s => subscription.child = s, k, e, p)
+						else {
+						    subscription.child = Observable._subscribe(x.value, k, e, p)
+						    subscription.child.run()
+                        }
 					})._run(p)
 				}
 				else e.emit(y)
 			}
 			if (x == End) e.complete()
-			else x.value._subscribe(s => subscription.child = s, k, e, p)
+			else {
+			    subscription.child = Observable._subscribe(x.value, k, e, p)
+			    subscription.child.run()
+            }
 		})
 		return new Observable(ef, 'concatAll')
 	}
 
-	endWith (...lst) { return Observable.concat(this, Observable.of(...lst).rename('endWith')).rename('endWith') }
+	endWith (...lst) { return Observable.concat(this, Observable.of(...lst)).rename('endWith') }
 
 	static forkJoin (...lst) {
 		let ef = (e, subscription) => new AsyncM(async p => {
@@ -702,8 +723,9 @@ class Observable {
 			}
 
 			subscription.source = []
-			lst.forEach((ob,i) => {
-				Observable.fromPromise(ob)._subscribe(s => subscription.source.push(s), x=>k(x,i), e, p)
+			lst.forEach((ob, i) => {
+				subscription.source[i] = Observable.fromPromise(ob)._subscribe(x => k(x, i), e, p)
+				subscription.source[i].run()
 			})
 			
 		})
@@ -723,7 +745,10 @@ class Observable {
 			}
 
 			subscription.source = []
-			lst.forEach(ob => ob._subscribe(s => subscription.source.push(s), k, e, p))
+			lst.forEach((ob, i) => {
+			    subscription.source[i] = ob._subscribe(k, e, p)
+			    subscription.source[i].run()
+            })
 		})
 
 		return new Observable(ef, 'merge')
@@ -750,7 +775,10 @@ class Observable {
 
 					let k1 = y => {
 						if (y == End) {
-							if (buffer.length > 0) buffer.shift()._subscribe(s => subscription.child = s, k1, e, p)
+							if (buffer.length > 0) {
+							    subscription.child = buffer.shift()._subscribe(k1, e, p)
+							    subscription.child.run()
+                            }
 							else count = count - 1; 
 						}
 						else e.emit(y)
@@ -758,11 +786,13 @@ class Observable {
 							if (ending) e.complete(); 
 						}	
 					}
-					x.value._subscribe(s => subscription.child = s, k1, e, p)
+					subscription.child = Observable._subscribe(x.value, k1, e, p)
+					subscription.child.run()
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 
 		return new Observable(ef, 'mergeAll')
@@ -783,7 +813,8 @@ class Observable {
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 
 		return new Observable(ef, 'pairwise')
@@ -803,7 +834,12 @@ class Observable {
 				e.emit(x)
 			}
 
-			lst.forEach((ob, i) => { if (! won) ob._subscribe(s => subscription.source.push(s), x => k(x, i), e, p) })
+			lst.forEach((ob, i) => {
+			    if (! won) {
+			        subscription.source[i] = ob._subscribe(x => k(x, i), e, p)
+			        subscription.source[i].run()
+			    }
+            })
 		})
 
 		return new Observable(ef, 'race')
@@ -811,7 +847,7 @@ class Observable {
 
 	race (...lst) { return Observable.race(this, ...lst) }
 
-	startWith (...lst) { return Observable.concat(Observable.of(...lst).rename('startWith'), this).rename('startWith') }
+	startWith (...lst) { return Observable.concat(Observable.of(...lst), this).rename('startWith') }
 
 	withLatestFrom (...lst) {
 		let f
@@ -848,8 +884,12 @@ class Observable {
 			}
 
 			subscription.child = []
-			lst.forEach((ob,i) => ob._subscribe(s => subscription.child.push(s), k1(i), e, p))
-			this._subscribe(s => subscription.source = s, k, e, p)
+			lst.forEach((ob, i) => {
+			    subscription.child[i] = ob._subscribe(k1(i), e, p)
+			    subscription.child[i].run()
+            })
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		
 		return new Observable(ef, 'withLatestFrom')
@@ -860,9 +900,10 @@ class Observable {
 			let channels = lst.map(_ => new MChannel())
 
 			subscription.source = []
-			lst.forEach(
-				(ob, i) => ob._subscribe(s => subscription.source.push(s), x => channels[i].write(x)._run(p), e, p)
-			)
+			lst.forEach((ob, i) => {
+			    subscription.source[i] = ob._subscribe(x => channels[i].write(x)._run(p), e, p)
+			    subscription.source[i].run()
+			})
 
 			let ended = false
 			while (! ended) {
@@ -902,7 +943,8 @@ class Observable {
 				else e.emit(x)
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'defaultIfEmpty')
 	}
@@ -924,7 +966,8 @@ class Observable {
 					}
 				}
 			}
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'every')
 	}
@@ -963,7 +1006,10 @@ class Observable {
 			}
 
 			subscription.source = []
-			lst.forEach((ob, i) => ob._subscribe(s => subscription.source.push(s), h(i), e, p))
+			lst.forEach((ob, i) => {
+			    subscription.source[i] = ob._subscribe(h(i), e, p)
+			    subscription.source[i].run()
+            })
 		})
 		return new Observable(ef, 'sequenceEqual')
 	}
@@ -1077,7 +1123,7 @@ class Observable {
 		return Observable.generate(low, x=> x<=high, x=>x+1).rename(`range(${low}, ${high})`)
 	}
 
-	static throwError (ex) { return Observable.of(null).rename('throwError').map(_ => { throw ex }).rename('throwError') }
+	static throwError (ex) { return Observable._make('throwError', Observable.of(null).map(_ => { throw ex })) }
 
 	static timer(d, dt) {
 		let ef = (e, _) => AsyncM.timeout(d)
@@ -1101,13 +1147,15 @@ class Observable {
 					p1.cancel()
 					// subscribe to the replacement observable, but if 'h' is called synchronously, 
 					// the subscription can't be saved so that we just don't save it for now.
-					f(x.value)._subscribe(s => subscription.source = s, x => e.emit(x), e, p)
+					subscription.source = Observable._subscribe(f(x.value), x => e.emit(x), e, p)
+					subscription.source.run()
 				}
 				catch (ex) {
 					e.emit(new ErrorEvent(ex))
 				}
 			}
-			this._subscribe(s => subscription.source = s, x => e.emit(x), {emit: h}, p)
+			subscription.source = this._subscribe(x => e.emit(x), {emit: h}, p)
+			subscription.source.run()
 		})
 
 		return new Observable(ef, 'catchError') 	
@@ -1120,13 +1168,15 @@ class Observable {
 				if (n > 0) {
 					n = n - 1
 					p1.cancel()
-					this._subscribe(s => subscription.source = s, x => e.emit(x), {emit: h}, p)
+					subscription.source = this._subscribe(x => e.emit(x), {emit: h}, p)
+					subscription.source.run()
 				}
 				else {
 					e.emit(x)
 				}
 			}
-			this._subscribe(subscription.source = s, x => e.emit(x), {emit: h}, p)
+			subscription.source = this._subscribe(x => e.emit(x), {emit: h}, p)
+			subscription.source.run()
 		})
 
 		return new Observable(ef, 'retry(' + times + ')') 			
@@ -1137,15 +1187,18 @@ class Observable {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let h = (x, p1) => {
 				p1.cancel()
-				notifier(Observable.of(x.value))._subscribe(s => subscription.child = s, (y, p2) => {
+				subscription.child = Observable._subscribe(notifier(Observable.of(x.value)), (y, p2) => {
 					if (y == End) e.complete()
 					else {
 						p2.cancel()
-						this._subscribe(s => subscription.source = s, x => e.emit(x), {emit: h}, p)
+						subscription.source = this._subscribe(x => e.emit(x), {emit: h}, p)
+						subscription.source.run()
 					}
 				}, e, p)
+				subscription.child.run()
 			}
-			this._subscribe(s => subscription.source = s, x => e.emit(x), {emit: h}, p)
+			subscription.source = this._subscribe(x => e.emit(x), {emit: h}, p)
+			subscription.source.run()
 		})
 
 		return new Observable(ef, 'retryWhen') 			
@@ -1206,20 +1259,22 @@ class Observable {
 				else {
 					latest = x
 
-					selector(x.value)._subscribe(s => subscription.child = s, (_, p2) => {
+					subscription.child = Observable._subscribe(selector(x.value), (_, p2) => {
 						p2.cancel()
 						e.emit(latest)
 					}, e, p)
+					subscription.child.run()
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'debounce()')
 	}
 
 	debounceTime (dt) {
-		return this.debounce(_ => timer(dt).rename(`debounceTime(${dt})`)).rename(`debounceTime(${dt})`)
+		return this.debounce(_ => timer(dt)).rename(`debounceTime(${dt})`)
 	}
 
 	distinct (keySelector = x => x, flush) {
@@ -1241,9 +1296,13 @@ class Observable {
 				}
 			}
 
-			if (flush instanceof Observable) flush._subscribe(s => subscription.child = s, _ => cache.clear(), e, p)
+			if (flush instanceof Observable) {
+			    subscription.child = flush._subscribe(_ => cache.clear(), e, p)
+			    subscription.child.run()
+            }
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'distinct')		
 	}
@@ -1260,7 +1319,8 @@ class Observable {
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'distinctUntilChanged')
 	}
@@ -1277,7 +1337,8 @@ class Observable {
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'distinctUntilKeyChanged')
 	}
@@ -1285,7 +1346,7 @@ class Observable {
 	filter (predicate, thisArg) {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let index = 0
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				try {
 					if (x == End) e.complete() 
 					else if (predicate.call(thisArg, x.value, index++)) e.emit(x)
@@ -1293,12 +1354,13 @@ class Observable {
 				catch (ex) {
 					e.emit(new ErrorEvent(ex))
 				}
-			}, e, p) 
+			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'filter') 	
 	}
 
-	find (predicate) { return this.filter(predicate).rename('find').take(1).rename('find') }
+	find (predicate) { return Observable._make('find', this.filter(predicate).take(1)) }
 
 	first (predicate = _ => true, defaultValue) {
 		let ef = (e, subscription) => new AsyncM(async p => {
@@ -1307,22 +1369,24 @@ class Observable {
 				e.complete()
 				p1.cancel()
 			}
-			this._subscribe(s => subscription.source = s, (x, p1) => {
+			subscription.source = this._subscribe((x, p1) => {
 				if (x == End) {
 					if (defaultValue) f(defaultValue, p1)
 					else e.error('No first event');
 				}
 				else if (predicate(x.value)) f(x.value, p1)
-			}, e, p) 
+			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'first') 		
 	}
 
 	ignoreElements () {
 		let ef = (e, subscription) => new AsyncM(async p => {
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) { e.complete() }
-			}, e, p) 
+			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'ignoreElements') 
 	}
@@ -1336,7 +1400,7 @@ class Observable {
 				e.next(x)
 				e.complete()
 			}
-			this._subscribe(s => subscription.source = s, (x, p1) => {
+			subscription.source = this._subscribe((x, p1) => {
 				if (x == End) {
 					if (last) f(last.value, p1) 
 					else if (defaultValue) f(defaultValue, p1)
@@ -1345,7 +1409,8 @@ class Observable {
 				else if (predicate(x.value)) {
 					last = x
 				}
-			}, e, p) 
+			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'last') 
 	}
@@ -1369,6 +1434,7 @@ class Observable {
 			let k1 = y => { 
 				if (y == End) { // source ends
 					subscription.child.unsubscribe()
+					done = true
 					e.complete()
 				}
 				else {
@@ -1377,14 +1443,17 @@ class Observable {
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k1, e, p)
-			sampler._subscribe(s => subscription.child = s, k, e, p)
+			subscription.source = this._subscribe(k1, e, p)
+			subscription.child = sampler._subscribe(k, e, p)
+
+			subscription.source.run()
+			subscription.child.run()
 		})
 		
 		return new Observable(ef, 'sampler')
 	}
 
-	single (predicate) { return this.filter(predicate).rename('single').take(1).rename('single'); }
+	single (predicate) { return Observable._make('single', this.filter(predicate).take(1)); }
 
 	skip (size) { return this.skipWhile((_, index) => index < size).rename(`skip(${size})`) }
 
@@ -1399,11 +1468,14 @@ class Observable {
 				else if (!b) { e.emit(x) } 
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
-			ob._subscribe(s => subscription.child = s, (_, p2) => { 
+			subscription.source = this._subscribe(k, e, p)
+			subscription.child = ob._subscribe((_, p2) => {
 				b = false
 				p2.cancel()
 			}, e, p)
+
+			subscription.source.run()
+			subscription.child.run()
 		})
 		return new Observable(ef, 'skipUntil') 	
 	}
@@ -1424,7 +1496,8 @@ class Observable {
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'skipWhile') 	
 	}
@@ -1445,7 +1518,8 @@ class Observable {
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, `takeLast({size})`) 	
 	}
@@ -1453,15 +1527,18 @@ class Observable {
 
 	takeUntil (ob) {
 		let ef = (e, subscription) => new AsyncM(async p => {
-			ob._subscribe(s => subscription.child = s, (_, p2) => {
+			subscription.child = ob._subscribe((_, p2) => {
 				p2.cancel()
 				subscription.source.unsubscribe()
 				e.complete()
 			}, e, p)
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) subscription.child.unsubscribe() 
 				e.emit(x)
 			}, e, p)
+
+			subscription.child.run()
+			subscription.source.run()
 		})
 		return new Observable(ef, 'takeUntil') 	
 	}
@@ -1485,7 +1562,8 @@ class Observable {
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'takeWhile') 	
 	}
@@ -1521,12 +1599,13 @@ class Observable {
 
 						let ob = Observable.fromPromise(selector(x.value))
 
-						ob._subscribe(s => subscription.child = s, (_, p2) => {
+						subscription.child = ob._subscribe((_, p2) => {
 							p2.cancel()
 							masked = false
 							if (trailing && trailingEvent) e.emit(trailingEvent)
 							if (auditing && auditingEvent) e.emit(auditingEvent)
 						}, e, p)
+						subscription.child.run()
 
 						if (leading) e.emit(x)
 					}
@@ -1534,7 +1613,8 @@ class Observable {
 				}
 			}
 
-			this._subscribe(s => subscription.source = s, k, e, p)
+			subscription.source = this._subscribe(k, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, `throttle()`)
 	
@@ -1553,7 +1633,7 @@ class Observable {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let cache = []
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					subscription.child.unsubscribe()
 					e.complete()
@@ -1561,10 +1641,13 @@ class Observable {
 				else { cache.push(x.value) }
 			}, e, p)
 
-			ob._subscribe(s => subscription.child = s, _ => { 
+			subscription.child = ob._subscribe(_ => {
 				e.next(cache)
 				cache = []
 			}, e, p)
+
+			subscription.source.run()
+			subscription.child.run()
 		})
 		
 		return new Observable(ef, 'buffer') 
@@ -1578,7 +1661,7 @@ class Observable {
 
 			if (every == undefined) every = size
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					e.complete()
 				}
@@ -1601,6 +1684,7 @@ class Observable {
 					}
 				}
 			}, e, p)
+			subscription.source.run()
 		})
 		
 		return new Observable(ef, `bufferCount(${size}, ${every})`) 
@@ -1617,18 +1701,21 @@ class Observable {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let buffer = []
 
-			Observable.interval(size)._subscribe(s => subscription.child = s, x => {
+			subscription.child = Observable._subscribe(Observable.interval(size), x => {
 				e.next(buffer)
 				buffer = []
 			}, e, p)
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					subscription.child.unsubscribe()
 					e.complete()
 				}
 				else buffer.push(x.value)
 			}, e, p)
+
+			subscription.source.run()
+			subscription.child.run()
 		})
 		
 		return new Observable(ef, `bufferTime(${size})`) 
@@ -1648,17 +1735,18 @@ class Observable {
 
 			let k = v => {
 				let start = cache
-				let sub = f(v)._subscribe(null, (_, p2) => { 
+				let sub = Observable._subscribe(f(v), (_, p2) => {
 					e.next(toArray(start))
 					p2.cancel()
 				}, e, p)
+				sub.run()
 			}
 
-			ob._subscribe(s => subscription.child = s, x => {
+			subscription.child = ob._subscribe(x => {
 				if (x != End) k(x.value)
 			}, e, p)
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					subscription.child.unsubscribe()
 					e.complete()
@@ -1669,6 +1757,9 @@ class Observable {
 					cache = cache.next
 				}
 			}, e, p)
+
+			subscription.child.run()
+			subscription.source.run()
 		})
 		
 		return new Observable(ef, 'bufferToggle') 
@@ -1679,41 +1770,44 @@ class Observable {
 			let cache = []
 
 			let h = _ => {
-				f()._subscribe(s => subscription.child = s, (_, p2) => { 
+				subscription.child = Observable._subscribe(f(), (_, p2) => {
 					p2.cancel()
 					e.next(cache)
 					cache = []
 					h()
 				}, e, p)
+				subscription.child.run()
 			}
 			h()
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					subscription.child.unsubscribe()
 					e.complete()
 				}
 				else { cache.push(x.value) }
 			}, e, p)
+			subscription.source.run()
 		})
 		
 		return new Observable(ef, 'bufferWhen') 
 	}
 
-	concatMap (f) { return this.fmap(f).rename('concatMap').concatAll().rename('concatMap') } 
+	concatMap (f) { return Observable._make('concatMap', this.fmap(f).concatAll()) } 
 
-	concatMapTo (ob, f) { return this.concatMap(x=> ob.fmap(y=> f(x,y)).rename('concatMapTo')).rename('concatMapTo') } 
+	concatMapTo (ob, f) { return this.concatMap(x=> ob.fmap(y=> f(x,y))).rename('concatMapTo') } 
 
 	count () {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let c = 0 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					e.next(c)
 					e.complete()
 				}
 				else c++
 			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'count') 	
 	}
@@ -1724,7 +1818,7 @@ class Observable {
 			let ready = true
 			let ending = false
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					if (ready) e.complete()
 					else ending = true
@@ -1732,15 +1826,17 @@ class Observable {
 				else if (ready) {
 					ready = false
 
-					f(x.value)._subscribe(s => subscription.child = s, y => {
+					subscription.child = Observable._subscribe(f(x.value), y => {
 						if (y == End) {
 							if (ending) e.complete()
 							else ready = true 
 						}
 						else e.emit(y)
 					}, e, p)
+					subscription.child.run()
 				}
 			}, e, p)
+			subscription.source.run()
 		})
 		
 		return new Observable(ef, 'exhaustMap') 	
@@ -1753,28 +1849,31 @@ class Observable {
 			let count = 1
 			let buffer = []
 			
-			let h = ob => ob._subscribe(s => subscription.source = s, (x, p1) => {
-				if (x == End) {
-					if (buffer.length > 0) {
-						if (p1.isAlive()) h(buffer.shift())
-					}
-					else count -- 
-				}
-				else {
-					e.emit(x)
+			let h = ob => {
+			    subscription.source = ob._subscribe((x, p1) => {
+			        if (x == End) {
+			            if (buffer.length > 0) {
+			                if (p1.isAlive()) h(buffer.shift())
+			            }
+			            else count --
+			        }
+			        else {
+			            e.emit(x)
 
-					let nextOb = f(x.value)
+			            let nextOb = f(x.value)
 
-					if (count >= concurrent) {
-						buffer.push(nextOb)
-					}
-					else {
-						count ++
-						if (p1.isAlive()) h(nextOb)
-					}
-				}
-				if (count <= 0) e.complete()
-			}, e, p)
+			            if (count >= concurrent) {
+			                buffer.push(nextOb)
+			            }
+			            else {
+			                count ++
+			                if (p1.isAlive()) h(nextOb)
+			            }
+			        }
+			        if (count <= 0) e.complete()
+			    }, e, p)
+			    subscription.source.run()
+			}
 
 			h(this)
 		})
@@ -1787,7 +1886,7 @@ class Observable {
 			let map = {}
 			let subject = new Subject(this)
 			
-			subject._subscribe(s => subscription.source = s, x => {
+			subscription.source = subject._subscribe(x => {
 				if (x == End) {
 					e.complete()
 				}
@@ -1799,12 +1898,13 @@ class Observable {
 							// 'x.value' is also passed to 'ob' 
 							// 	since it is added before the firing completes 
 							// do we need to perform cleanup?
-							subject._subscribe(s => subscription.child = s, y => {
+							subscription.child = subject._subscribe(y => {
 								if (y == End) e1.complete()
 								else if (keyF(y.value) == key) {
 									e1.next(selectF(y.value))
 								}
 							}, e, p1) // don't handle error for each group
+							subscription.child.run()
 						}), 'group')
 
 						map[key] = key // only need to know which keys exist
@@ -1813,6 +1913,7 @@ class Observable {
 					}
 				}
 			}, e, p)
+			subscription.source.run()
 
 			subject.connect()
 		})
@@ -1830,7 +1931,7 @@ class Observable {
 
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let i = 0
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				try {
 					(x == End) ? e.complete() : e.next(f(x.value, i++))
 				}
@@ -1839,7 +1940,8 @@ class Observable {
 					ex = new RxError(ex, loc, graphTrace)
 					e.error(ex)
 				}
-			}, e, p) 
+			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'fmap') 	
 	}
@@ -1848,11 +1950,12 @@ class Observable {
 
 	mergeMap (f, selector, concurrent) {
 		if (selector == undefined)
-			return this.fmap(f).rename('mergeMap').mergeAll().rename('mergeMap') 
+			return Observable._make('mergeMap', this.fmap(f).mergeAll())
 		else 
-			return this.fmap((x, i) => Observable.fromPromise(f(x)).fmap((y, j)=> [x, y, i, j]).rename('mergeMap')).rename('mergeMap')
-				.mergeAll(concurrent).rename('mergeMap')
-				.fmap(lst => selector(...lst)).rename('mergeMap')
+			return Observable._make('mergeMap',
+			    this.fmap((x, i) => Observable.fromPromise(f(x)).fmap((y, j)=> [x, y, i, j]))
+				.mergeAll(concurrent)
+				.fmap(lst => selector(...lst)))
 	}
 
 	static fromPromise (ob) { return (ob instanceof Promise) ? Observable.from(ob) : ob }
@@ -1861,9 +1964,9 @@ class Observable {
 		return Observable.fix(
 			ob => {
 				let index = 0
-				return this.withLatestFrom(ob.startWith(seed)).rename('mergeScan')
-				  .fmap(([e, c]) => accumulator(c, e, index++)).rename('mergeScan')
-				  .mergeAll(concurrent).rename('mergeScan')
+				return this.withLatestFrom(ob.startWith(seed))
+				  .fmap(([e, c]) => accumulator(c, e, index++))
+				  .mergeAll(concurrent)
 			}
 		).rename('mergeScan'); 
 	}
@@ -1890,15 +1993,14 @@ class Observable {
 			(c!=undefined && c[e]!=undefined) ? c[e] : undefined, x)).rename('pluck') 
 	}
 
-	reduce (accumulator, seed) { return this.scan(accumulator, seed).rename('reduce').last().rename('reduce') } 
+	reduce (accumulator, seed) { return Observable._make('reduce', this.scan(accumulator, seed).last()) } 
 
 	// accumulator :: (c, e) -> c
 	// seed :: c
 	scan (accumulator, seed) {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let c = seed
-			this._subscribe(
-				s => subscription.source = s,
+			subscription.source = this._subscribe(
 				x => {
 					if (x == End) e.complete()
 					else { 
@@ -1916,18 +2018,19 @@ class Observable {
 				{emit: x => e.emit(x)},
 				p
 			)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'scan') 			
 	}
 
 	switchMap (f, selector) {
-		if (selector == undefined) 
-			return this.fmap(f).rename('switchMap').join().rename('switchMap')
-		else
-			return this.fmap((x,i) => f(x).fmap((y,j) => selector(x,y,i,j)).rename('switchMap')).rename('switchMap').join().rename('switchMap')
+        if (selector == undefined)
+            return Observable._make('switchMap', this.fmap(f).join())
+        else
+            return Observable._make('switchMap', this.fmap((x,i) => f(x).fmap((y,j) => selector(x,y,i,j))).join())
 	}
 
-	switchAll () { return this.join().rename('switchAll') }
+	switchAll () { return Observable._make("switchAll", this.join()) }
 
 	join () {
 		let loc = RxError._getCallerLocation()
@@ -1935,7 +2038,7 @@ class Observable {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let ending = true
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					if (ending) e.complete(); else ending = true
 				}
@@ -1943,15 +2046,14 @@ class Observable {
 					ending = false
 					if (subscription.child) subscription.child.unsubscribe()
 					try {
-						if (!x.value || !x.value._subscribe)
-							throw new TypeError(x.value + " is not subscribable.")
-						x.value._subscribe(s => subscription.child = s, y => {
+						subscription.child = Observable._subscribe(x.value, y => {
 							if (y == End) {
 								if (ending) e.complete()
 								else ending = true
 							}
 							else e.emit(y)
 						}, e, p)
+						subscription.child.run()
 					}
 					catch (ex) {
 						let graphTrace = RxError.captureSubscriptionGraph(subscription)
@@ -1960,6 +2062,7 @@ class Observable {
 					}
 				}
 			}, e, p)
+			subscription.source.run()
 		})
 
 		return new Observable(ef, 'join') 	
@@ -1970,13 +2073,14 @@ class Observable {
 	toArray () {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let array = []
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					e.next(array)
 					e.complete()
 				}
 				else array.push(x.value)
 			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'toArray') 	
 	}
@@ -1993,7 +2097,7 @@ class Observable {
 
 			h()
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					subject.complete()
 					e.complete()
@@ -2003,7 +2107,10 @@ class Observable {
 				}
 			}, e, p)
 
-			ob._subscribe(s => subscription.child = s, h, e, p)
+			subscription.child = ob._subscribe(h, e, p)
+
+			subscription.source.run()
+			subscription.child.run()
 		})
 		return new Observable(ef, 'window') 	
 	}
@@ -2024,7 +2131,7 @@ class Observable {
 
 			h()
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					windows.forEach(subject => subject.complete())
 					e.complete()
@@ -2044,6 +2151,7 @@ class Observable {
 					}
 				}
 			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, `windowCount(${size}, ${every})`) 	
 	}
@@ -2060,19 +2168,22 @@ class Observable {
 			let subject = new Subject()
 			e.next(subject)
 			
-			Observable.interval(size)._subscribe(s => subscription.child = s, x => {
+			subscription.child = Observable._subscribe(Observable.interval(size), x => {
 				subject.complete()
 				subject = new Subject()
 				e.next(subject)
 			}, e, p)
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					subject.complete()
 					e.complete()
 				}
 				else subject.next(x.value)
 			}, e, p)
+
+			subscription.source.run()
+			subscription.child.run()
 		})
 
 		return new Observable(ef, `windowTime(${size})`) 	
@@ -2082,7 +2193,7 @@ class Observable {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let windows = []
 			
-			ob._subscribe(s => subscription.child = s, x => {
+			subscription.child = ob._subscribe(x => {
 				if (x == End) {
 					subscription.source.unsubscribe()
 					e.complete()
@@ -2093,21 +2204,24 @@ class Observable {
 					e.next(subject)
 
 					// TODO
-					f(x.value)._subscribe(null, (_, p3) => {
+					Observable._subscribe(f(x.value), (_, p3) => {
 						p3.cancel()
 						subject.complete()
 						windows = windows.filter(s => s != subject)
-					}, e, p)
+					}, e, p).run()
 				}
 			}, e, p)
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					windows.forEach(subject => subject.complete())
 					e.complete()
 				}
 				else windows.forEach(subject => subject.next(x.value))
 			}, e, p)
+
+			subscription.source.run()
+			subscription.child.run()
 		})
 		return new Observable(ef, 'windowToggle') 	
 	}
@@ -2120,15 +2234,16 @@ class Observable {
 				subject = new Subject()
 				e.next(subject)
 
-				f()._subscribe(s => subscription.child = s, (_, p2) => { 
+				subscription.child = Observable._subscribe(f(), (_, p2) => {
 					p2.cancel()
 					subject.complete()
 					h()
 				}, e, p)
+				subscription.child.run()
 			}
 			h()
 			
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) {
 					subscription.child.unsubscribe()
 					e.complete()
@@ -2137,6 +2252,7 @@ class Observable {
 					if (subject) subject.next(x.value) 
 				}
 			}, e, p)
+			subscription.source.run()
 		})
 		
 		return new Observable(ef, 'windowWhen') 
@@ -2153,7 +2269,7 @@ class Observable {
 			f = f.next
 		}
 		let ef = (e, subscription) => new AsyncM(async p => {
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				try {
 					if (x == End) {
 						if (complete) complete(End);
@@ -2172,7 +2288,8 @@ class Observable {
 				if (error) error(x.value)	
 				e.emit(x)
 			}}, 
-			p ) 
+			p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'tap') 	
 	}
@@ -2183,9 +2300,10 @@ class Observable {
 			dt = new Date - dt	
 		}
 		let ef = (e, subscription) => new AsyncM(async p => {
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				AsyncM.timeout(dt).fmap(_ => e.emit(x))._run(p)
 			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'delay') 	
 	}
@@ -2193,7 +2311,7 @@ class Observable {
 	delayWhen (selector) {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let ending = false
-			this._subscribe(s => subscription.source = s, (x, p1) => {
+			subscription.source = this._subscribe((x, p1) => {
 				if (x == End) {
 					if (subscription.child) ending = true; else e.complete()
 				}
@@ -2211,13 +2329,15 @@ class Observable {
 					}, e, p)
 				}
 			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'delayWhen') 			
 	}
 
 	finalize (h) {
 		let ef = (e, subscription) => new AsyncM(async p => {
-			this._subscribe(s => subscription.source = s, x => e.emit(x), e, p, h)
+			subscription.source = this._subscribe(x => e.emit(x), e, p, h)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'finalize') 					
 	}
@@ -2227,7 +2347,7 @@ class Observable {
 			let count = 1
 
 			let h = _ => {
-				this._subscribe(s => subscription.source = s, x => {
+				subscription.source = this._subscribe(x => {
 					if (x == End) {
 						if (n == undefined || count++ < n) {
 							h()	
@@ -2236,6 +2356,7 @@ class Observable {
 					}
 					else e.emit(x)
 				}, e, p)
+				subscription.source.run()
 			}
 			h()
 		})
@@ -2246,9 +2367,9 @@ class Observable {
 	repeatWhen (notifier) {
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let h = _ => {
-				this._subscribe(s => subscription.source = s, x => {
+				subscription.source = this._subscribe(x => {
 					if (x == End) {
-						notifier(Observable.of(x))._subscribe(s => subscription.child = s, (y, p2) => {
+						subscription.child = Observable._subscribe(notifier(Observable.of(x)), (y, p2) => {
 							if (y == End) {
 								e.complete()
 							}
@@ -2256,10 +2377,12 @@ class Observable {
 								p2.cancel()
 								h()
 							}
-						}, e, p)					
+						}, e, p)
+						subscription.child.run()
 					}
 					else e.emit(x)
 				}, e, p)
+				subscription.source.run()
 			}
 			h()
 		})
@@ -2274,7 +2397,7 @@ class Observable {
 		}
 		let ef = (e, subscription) => new AsyncM(async p => {
 			let prev = new Date().getTime()
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				if (x == End) e.complete()
 				else {
 					let now = new Date().getTime()
@@ -2282,6 +2405,7 @@ class Observable {
 					prev = now
 				}
 			}, e, p)
+			subscription.source.run()
 		})
 		return new Observable(ef, 'timeInterval') 		
 	}
@@ -2309,7 +2433,7 @@ class Observable {
 			let h = (n, p) => AsyncM.timeout(n).fmap(_ => e.emit(new ErrorEvent(message)))._run(p)
 			let p1 = new Progress(p)
 
-			this._subscribe(s => subscription.source = s, x => {
+			subscription.source = this._subscribe(x => {
 				p1.cancel()
 				e.emit(x)
 				if (each > 0 && x != End) {
@@ -2317,6 +2441,7 @@ class Observable {
 					h(each, p1)
 				}
 			}, e, p)
+			subscription.source.run()
 
 			if (first > 0) h(first, p1)
 		})
@@ -2349,13 +2474,14 @@ class Observable {
 			p.cancel()
 			error(x.value)
 		}}
-		return this._subscribe(null, x => { 
+		return this._subscribe(x => {
 			if (x == End) {
 				if (complete) complete()
 			}
 			else next(x.value)
 		}, e, p)
 		.track(true)
+		.run()
 	}
 
 	// (Emitter a, a -> (), Error -> (), _ -> ()) -> ()
@@ -2376,10 +2502,10 @@ class Observable {
 	}
 
 	// k: a => (), e :: Emitter a, f :: Progress, f :: finalizer
-	_subscribe(sf, k, e, p, f) {
+	_subscribe(k, e, p, f) {
 		let e1 = new Emitter()
 		let p1 = p.cons()
-		let s = new Subscription(this.name, this.cname, e1, p1)
+		let s = new Subscription(this, this.name, this.cname, e1, p1)
 
 		// run f1 if p1 is cancelled or End event is received on e1.
 		let f1 = _ => { if (f) f(); p1.unlink() }
@@ -2387,18 +2513,15 @@ class Observable {
 
 		// pass 'p1' so that handler can use it to cancel the subscription
 		this._listen(e1, x => k(x, p1, s), x => e.emit(x, p1), f1) 
-		if (sf) sf(s)
-
-		this.ef(e1, s)._run(p1)
-
-		let r = p.checkpoint && p.checkpoint.deref()
-		if (r) {
-			let result = safe(r)
-			console.log(`safe (${r.name} ~> ${this.name}) =`, result)
-		}
 
 		return s
 	}
+
+	static _subscribe(thisval, k, e, p, f) {
+	    if (!thisval || !thisval._subscribe)
+			throw new TypeError(x.value + " is not subscribable.")
+	    return thisval._subscribe(k, e, p, f)
+    }
 }
 
 class Subject extends Observable {
@@ -2513,16 +2636,35 @@ class ReplaySubject extends RefCountSubject {
 class Subscription {
 	static tracked = new Set()
 
-	constructor(name, cname, emitter, progress, source=null, child=null) {
+	constructor(observable, name, cname, emitter, progress, source=null, child=null) {
+	    this.observable = observable
 		this.name = name
 		this.cname = cname
 		this.emitter = emitter 
 		this.progress = progress
 		this.source = source 
 		this.child = child
+		this.unsubscribed = false
 	}
 
-	unsubscribe() { this.track(false); this.progress.cancel() }
+	run() {
+        if (!this.unsubscribed) {
+	        this.observable.ef(this.emitter, this)._run(this.progress)
+	        let p = this.progress
+	        let r = p.checkpoint && p.checkpoint.deref()
+	        if (r) {
+	            let result = safe(r)
+	            //console.log(`safe (${r.name} ~> ${this.name}) =`, result)
+	        }
+	    }
+	    return this
+    }
+
+	unsubscribe() {
+	    this.unsubscribed = true
+	    this.track(false)
+	    this.progress.cancel()
+	}
 
 	toString() {
 		let lst = [this.name]
