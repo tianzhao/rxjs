@@ -2316,7 +2316,7 @@ class Observable {
 					if (subscription.child) ending = true; else e.complete()
 				}
 				else {
-					selector(x.value)._subscribe(s => subscription.child = s, (y, p2) => {
+					subscription.child = Observable._subscribe(selector(x.value), (y, p2) => {
 						if (y == End) {
 							p1.cancel()
 							e.complete()
