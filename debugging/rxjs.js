@@ -2519,7 +2519,7 @@ class Observable {
 
 	static _subscribe(thisval, k, e, p, f) {
 	    if (!thisval || !thisval._subscribe)
-			throw new TypeError(x.value + " is not subscribable.")
+			throw new TypeError(thisval + " is not subscribable.")
 	    return thisval._subscribe(k, e, p, f)
     }
 }
@@ -2562,8 +2562,8 @@ class Subject extends Observable {
 	connect() {
 		if (! this.connected) {
 			this.connected = true
-			this.observable._subscribe(
-				s => this.source = s,
+			this.source = Observable._subscribe(
+				this.observable,
 				x => this._fire(x), 
 				{emit: x => this._fire(x)}, 
 				new Progress()
