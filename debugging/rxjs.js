@@ -2567,7 +2567,8 @@ class Subject extends Observable {
 				x => this._fire(x), 
 				{emit: x => this._fire(x)}, 
 				new Progress()
-			) 	
+			) 
+			this.source.run()
 		}
 	}
 	unsubscribe () { 
@@ -2648,17 +2649,17 @@ class Subscription {
 	}
 
 	run() {
-        if (!this.unsubscribed) {
-	        this.observable.ef(this.emitter, this)._run(this.progress)
-	        let p = this.progress
-	        let r = p.checkpoint && p.checkpoint.deref()
-	        if (r) {
-	            let result = safe(r)
-	            //console.log(`safe (${r.name} ~> ${this.name}) =`, result)
-	        }
+            if (!this.unsubscribed) {
+		this.observable.ef(this.emitter, this)._run(this.progress)
+		let p = this.progress
+		let r = p.checkpoint && p.checkpoint.deref()
+		if (r) {
+		        let result = safe(r)
+		        //console.log(`safe (${r.name} ~> ${this.name}) =`, result)
+		}
 	    }
 	    return this
-    }
+    	}
 
 	unsubscribe() {
 	    this.unsubscribed = true
