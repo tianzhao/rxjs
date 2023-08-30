@@ -2567,7 +2567,8 @@ class Subject extends Observable {
 				x => this._fire(x), 
 				{emit: x => this._fire(x)}, 
 				new Progress()
-			) 	
+			)
+			this.source.run();
 		}
 	}
 	unsubscribe () { 
